@@ -9,6 +9,15 @@ from qa_python_lab.api_client import ApiClient
 
 @pytest.mark.api
 @pytest.mark.smoke
+@pytest.mark.contract
+def test_health_check_contract(base_url: str) -> None:
+    response = ApiClient(base_url).request("GET", "/api/health")
+    assert response.status == 200
+    assert response.body == {"status": "ok"}
+
+
+@pytest.mark.api
+@pytest.mark.smoke
 def test_get_existing_user(base_url: str) -> None:
     response = ApiClient(base_url).request("GET", "/api/users/1")
     assert response.status == 200

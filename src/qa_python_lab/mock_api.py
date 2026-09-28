@@ -48,6 +48,8 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                 self.send_header("Content-Length", str(len(html)))
                 self.end_headers()
                 self.wfile.write(html)
+            elif path == "/api/health":
+                self._json(200, {"status": "ok"})
             elif path == "/api/users":
                 self._json(200, users)
             elif path.startswith("/api/users/") and path.removeprefix("/api/users/").isdigit():
