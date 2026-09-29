@@ -29,6 +29,9 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             self.wfile.write(data)
 
         def _method_not_allowed(self) -> None:
+            # Consume the rejected payload so closing the socket preserves the response.
+            size = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(size)
             self.send_response(405)
             self.send_header("Allow", "GET, POST")
             self.send_header("Content-Type", "application/json; charset=utf-8")

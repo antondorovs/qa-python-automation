@@ -137,11 +137,51 @@ def test_unknown_route_returns_404(base_url: str) -> None:
 @pytest.mark.api
 @pytest.mark.contract
 @pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])
-def test_unsupported_user_method_returns_405(base_url: str, method: str) -> None:
-    request = Request(f"{base_url}/api/users", data=b"{}", method=method)
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("/api/users", id="collection"),
+        pytest.param("/api/users/1", id="existing-user"),
+        pytest.param("/api/users/999", id="missing-user"),
+        pytest.param("/api/users?limit=1", id="collection-query"),
+    ],
+)
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            b'{"name": "Carla", "email": "carla@example.com"}', id="valid-user"
+        ),
+        pytest.param(b'{"name":', id="malformed-json"),
+    ],
+)
+def test_unsupported_user_method_returns_405(
+    base_url: str, method: str, path: str, body: bytes
+) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    request = Request(
+        f"{base_url}{path}",
+        data=body,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
     with pytest.raises(HTTPError) as error:
         urlopen(request, timeout=5)
     with error.value as response:
+        response_body = response.read()
         assert response.status == 405
         assert response.headers["Allow"] == "GET, POST"
-        assert json.load(response) == {"error": "Method not allowed"}
+        assert response.headers.get_content_type() == "application/json"
+        assert response.headers.get_content_charset() == "utf-8"
+        assert response.headers["Content-Length"] == str(len(response_body))
+        assert json.loads(response_body) == {"error": "Method not allowed"}
+
+    assert client.request("GET", "/api/users").body == original_users
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body == {"id": 3, "name": "Carla", "email": "carla@example.com"}
+    assert client.request("GET", "/api/users/3").body == created.body
+    assert client.request("GET", "/api/users").body == original_users + [created.body]
