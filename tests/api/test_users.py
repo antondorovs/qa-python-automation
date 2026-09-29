@@ -132,3 +132,16 @@ def test_create_user_with_existing_normalized_email_is_rejected(base_url: str) -
 def test_unknown_route_returns_404(base_url: str) -> None:
     response = ApiClient(base_url).request("GET", "/api/unknown")
     assert response.status == 404
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])
+def test_unsupported_user_method_returns_405(base_url: str, method: str) -> None:
+    request = Request(f"{base_url}/api/users", data=b"{}", method=method)
+    with pytest.raises(HTTPError) as error:
+        urlopen(request, timeout=5)
+    with error.value as response:
+        assert response.status == 405
+        assert response.headers["Allow"] == "GET, POST"
+        assert json.load(response) == {"error": "Method not allowed"}

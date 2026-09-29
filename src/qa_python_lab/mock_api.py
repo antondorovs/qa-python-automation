@@ -28,6 +28,15 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(data)
 
+        def _method_not_allowed(self) -> None:
+            self.send_response(405)
+            self.send_header("Allow", "GET, POST")
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            body = json.dumps({"error": "Method not allowed"}).encode("utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
             path = urlsplit(self.path).path
             if path == "/":
@@ -93,6 +102,15 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             }
             users.append(user)
             self._json(201, user)
+
+        def do_PUT(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+            self._method_not_allowed()
+
+        def do_PATCH(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+            self._method_not_allowed()
+
+        def do_DELETE(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+            self._method_not_allowed()
 
     return Handler
 

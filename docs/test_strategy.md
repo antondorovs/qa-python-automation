@@ -3,8 +3,9 @@
 - **API:** exercise the local HTTP server through the same network boundary a
   real client uses. A smoke health check verifies service availability before
   endpoint-specific scenarios cover success, missing resources, invalid input
-  and response shape. User names are trimmed and email addresses are trimmed
-  and lowercased before creation. Every test starts with fresh in-memory users.
+  and response shape. Unsupported user methods return HTTP 405 with the allowed
+  methods. User names are trimmed and email addresses are trimmed and lowercased
+  before creation. Every test starts with fresh in-memory users.
 - **Data:** run SQL rules against an in-memory SQLite fixture. The baseline
   records known training defects; a separate test adds a defect to show that
   the rules detect drift. Order statuses are limited to `NEW` and `PAID`;
