@@ -154,6 +154,32 @@ def test_users_options_returns_supported_methods(base_url: str, path: str) -> No
 
 @pytest.mark.api
 @pytest.mark.contract
+@pytest.mark.parametrize("body", [b"", b'{"name":'])
+def test_users_options_preserves_user_state(base_url: str, body: bytes) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    request = Request(
+        f"{base_url}/api/users",
+        data=body,
+        method="OPTIONS",
+        headers={"Content-Type": "application/json"},
+    )
+
+    with urlopen(request, timeout=5) as response:
+        assert response.status == 204
+        assert response.read() == b""
+
+    assert client.request("GET", "/api/users").body == original_users
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == 3
+    assert client.request("GET", "/api/users").body == original_users + [created.body]
+
+
+@pytest.mark.api
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "path",
     [
