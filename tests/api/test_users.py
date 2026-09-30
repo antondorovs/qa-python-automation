@@ -136,13 +136,50 @@ def test_unknown_route_returns_404(base_url: str) -> None:
 
 @pytest.mark.api
 @pytest.mark.contract
-def test_users_options_returns_supported_methods(base_url: str) -> None:
-    request = Request(f"{base_url}/api/users", method="OPTIONS")
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("/api/users", id="collection"),
+        pytest.param("/api/users?limit=1", id="collection-query"),
+    ],
+)
+def test_users_options_returns_supported_methods(base_url: str, path: str) -> None:
+    request = Request(f"{base_url}{path}", method="OPTIONS")
     with urlopen(request, timeout=5) as response:
         assert response.status == 204
         assert response.headers["Allow"] == "GET, POST, OPTIONS"
         assert response.headers["Content-Length"] == "0"
         assert response.read() == b""
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("/api/users/1", id="existing-user"),
+        pytest.param("/api/users/999", id="missing-user"),
+        pytest.param("/api/unknown", id="unknown-route"),
+    ],
+)
+def test_options_on_other_routes_returns_404_without_changing_users(
+    base_url: str, path: str
+) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    request = Request(f"{base_url}{path}", method="OPTIONS")
+
+    with pytest.raises(HTTPError) as error:
+        urlopen(request, timeout=5)
+    with error.value as response:
+        response_body = response.read()
+        assert response.status == 404
+        assert response.headers.get_content_type() == "application/json"
+        assert response.headers.get_content_charset() == "utf-8"
+        assert response.headers["Content-Length"] == str(len(response_body))
+        assert json.loads(response_body) == {"error": "Resource not found"}
+
+    assert client.request("GET", "/api/users").body == original_users
 
 
 @pytest.mark.api
