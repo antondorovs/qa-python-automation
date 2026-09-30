@@ -4,7 +4,7 @@
   real client uses. A smoke health check verifies service availability before
   endpoint-specific scenarios cover success, missing resources, invalid input
   and response shape. Unsupported user methods return HTTP 405 with the allowed
-  methods. Parameterized checks cover collection and individual user URLs,
+  methods; `OPTIONS /api/users` advertises the supported methods. Parameterized checks cover collection and individual user URLs,
   query strings, and valid or malformed request bodies. Rejected methods preserve
   existing users and the next created user ID, with JSON headers and body verified.
   User names are trimmed and email addresses are trimmed and lowercased

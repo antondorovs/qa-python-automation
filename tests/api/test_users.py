@@ -136,6 +136,17 @@ def test_unknown_route_returns_404(base_url: str) -> None:
 
 @pytest.mark.api
 @pytest.mark.contract
+def test_users_options_returns_supported_methods(base_url: str) -> None:
+    request = Request(f"{base_url}/api/users", method="OPTIONS")
+    with urlopen(request, timeout=5) as response:
+        assert response.status == 204
+        assert response.headers["Allow"] == "GET, POST, OPTIONS"
+        assert response.headers["Content-Length"] == "0"
+        assert response.read() == b""
+
+
+@pytest.mark.api
+@pytest.mark.contract
 @pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])
 @pytest.mark.parametrize(
     "path",

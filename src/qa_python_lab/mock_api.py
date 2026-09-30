@@ -40,6 +40,12 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(body)
 
+        def _allowed_methods(self) -> None:
+            self.send_response(204)
+            self.send_header("Allow", "GET, POST, OPTIONS")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
             path = urlsplit(self.path).path
             if path == "/":
@@ -114,6 +120,12 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
 
         def do_DELETE(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
             self._method_not_allowed()
+
+        def do_OPTIONS(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+            if urlsplit(self.path).path == "/api/users":
+                self._allowed_methods()
+            else:
+                self._json(404, {"error": "Resource not found"})
 
     return Handler
 
