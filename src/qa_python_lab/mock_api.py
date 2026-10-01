@@ -122,6 +122,8 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             self._method_not_allowed()
 
         def do_OPTIONS(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+            size = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(size)
             if urlsplit(self.path).path == "/api/users":
                 self._allowed_methods()
             else:

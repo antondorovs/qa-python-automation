@@ -62,7 +62,6 @@ def test_create_user_and_read_back(base_url: str) -> None:
     "payload",
     [
         pytest.param({"name": "Carla"}, id="missing-email"),
-        pytest.param({"name": "  ", "email": "carla@example.com"}, id="blank-name"),
         pytest.param({"name": "Carla", "email": " \t "}, id="blank-email"),
         pytest.param({"name": "Carla", "email": 42}, id="non-string-email"),
     ],
@@ -73,6 +72,37 @@ def test_invalid_create_is_rejected(base_url: str, payload: dict[str, object]) -
     assert response.status == 400
     assert response.body == {"error": "name and email are required"}
     assert len(client.request("GET", "/api/users").body) == 2
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("  ", id="spaces"),
+        pytest.param("\t", id="tab"),
+        pytest.param("\n", id="newline"),
+        pytest.param(" \t\r\n ", id="mixed-whitespace"),
+        pytest.param(None, id="null"),
+        pytest.param(42, id="non-string"),
+    ],
+)
+def test_invalid_user_name_does_not_change_users_or_consume_id(base_url: str, name: object) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+
+    rejected = client.request("POST", "/api/users", {"name": name, "email": "casey@example.com"})
+    assert rejected.status == 400
+    assert rejected.body == {"error": "name and email are required"}
+    assert client.request("GET", "/api/users").body == original_users
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Casey", "email": "casey@example.com"}
+    )
+    assert created.status == 201
+    assert created.body == {"id": 3, "name": "Casey", "email": "casey@example.com"}
+    assert client.request("GET", "/api/users").body == original_users + [created.body]
 
 
 @pytest.mark.api
