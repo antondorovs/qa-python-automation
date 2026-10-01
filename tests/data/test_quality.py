@@ -53,6 +53,16 @@ def test_duplicate_email_with_surrounding_whitespace_changes_baseline(fixture_sq
 
 
 @pytest.mark.data
+def test_blank_user_name_changes_only_its_rule(fixture_sql: Path) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO users VALUES (4, '  ', 'casey@example.com')")
+        results = {result.name: result for result in evaluate_rules(connection)}
+    assert results["blank_user_names"].actual == 1
+    assert not results["blank_user_names"].passed
+    assert all(result.passed for name, result in results.items() if name != "blank_user_names")
+
+
+@pytest.mark.data
 def test_unknown_order_status_changes_only_its_rule(fixture_sql: Path) -> None:
     with load_fixture(fixture_sql) as connection:
         connection.execute("UPDATE orders SET status = 'UNKNOWN' WHERE id = 3")

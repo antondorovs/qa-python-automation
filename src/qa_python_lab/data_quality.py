@@ -25,6 +25,7 @@ RULES = {
             GROUP BY lower(trim(email)) HAVING COUNT(*) > 1
         )
     """,
+    "blank_user_names": "SELECT COUNT(*) FROM users WHERE trim(name) = ''",
     "orphan_orders": """
         SELECT COUNT(*) FROM orders o LEFT JOIN users u ON u.id = o.user_id
         WHERE u.id IS NULL
@@ -46,6 +47,7 @@ RULES = {
 
 BASELINE = {
     "duplicate_emails": 1,
+    "blank_user_names": 0,
     "orphan_orders": 1,
     "non_positive_amounts": 1,
     "invalid_order_statuses": 0,
