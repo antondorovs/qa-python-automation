@@ -53,11 +53,29 @@ def test_duplicate_email_with_surrounding_whitespace_changes_baseline(fixture_sq
 
 
 @pytest.mark.data
-def test_blank_user_name_changes_only_its_rule(fixture_sql: Path) -> None:
+@pytest.mark.parametrize("name", ["", "  ", "\t", "\n", " \t\r\n "])
+def test_blank_user_name_changes_only_its_rule(fixture_sql: Path, name: str) -> None:
     with load_fixture(fixture_sql) as connection:
-        connection.execute("INSERT INTO users VALUES (4, '  ', 'casey@example.com')")
+        connection.execute("INSERT INTO users VALUES (4, ?, 'casey@example.com')", (name,))
         results = {result.name: result for result in evaluate_rules(connection)}
     assert results["blank_user_names"].actual == 1
+    assert not results["blank_user_names"].passed
+    assert all(result.passed for name, result in results.items() if name != "blank_user_names")
+
+
+@pytest.mark.data
+def test_blank_user_name_rule_counts_each_bad_row(fixture_sql: Path) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.executemany(
+            "INSERT INTO users VALUES (?, ?, ?)",
+            [
+                (4, "", "casey@example.com"),
+                (5, "\t \n", "drew@example.com"),
+                (6, " Eve ", "eve@example.com"),
+            ],
+        )
+        results = {result.name: result for result in evaluate_rules(connection)}
+    assert results["blank_user_names"].actual == 2
     assert not results["blank_user_names"].passed
     assert all(result.passed for name, result in results.items() if name != "blank_user_names")
 

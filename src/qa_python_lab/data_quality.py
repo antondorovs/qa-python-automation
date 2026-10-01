@@ -25,7 +25,10 @@ RULES = {
             GROUP BY lower(trim(email)) HAVING COUNT(*) > 1
         )
     """,
-    "blank_user_names": "SELECT COUNT(*) FROM users WHERE trim(name) = ''",
+    "blank_user_names": """
+        SELECT COUNT(*) FROM users
+        WHERE trim(name, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)) = ''
+    """,
     "orphan_orders": """
         SELECT COUNT(*) FROM orders o LEFT JOIN users u ON u.id = o.user_id
         WHERE u.id IS NULL
