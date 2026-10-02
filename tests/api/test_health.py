@@ -54,3 +54,31 @@ def test_health_remains_available_after_user_creation_attempt(
     assert health.status == 200
     assert health.body == {"status": "ok", "user_count": len(expected_users)}
     assert client.request("GET", "/api/users").body == expected_users
+
+
+def test_health_user_count_tracks_mixed_user_creation_attempts(base_url: str) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    expected_users = original_users.copy()
+    assert client.request("GET", "/api/health").body == {
+        "status": "ok",
+        "user_count": len(expected_users),
+    }
+
+    attempts = [
+        ({"name": "Carla"}, 400),
+        ({"name": "Carla", "email": "carla@example.com"}, 201),
+        ({"name": "Another Carla", "email": " CARLA@example.com "}, 409),
+        ({"name": "Dana", "email": "dana.example.com"}, 400),
+        ({"name": "Dana", "email": "dana@example.com"}, 201),
+    ]
+    for payload, expected_status in attempts:
+        creation = client.request("POST", "/api/users", payload)
+        assert creation.status == expected_status
+        if expected_status == 201:
+            expected_users.append(creation.body)
+
+        health = client.request("GET", "/api/health")
+        assert health.status == 200
+        assert health.body == {"status": "ok", "user_count": len(expected_users)}
+        assert client.request("GET", "/api/users").body == expected_users
