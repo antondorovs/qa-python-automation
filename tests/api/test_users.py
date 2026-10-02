@@ -13,7 +13,7 @@ from qa_python_lab.api_client import ApiClient
 def test_health_check_contract(base_url: str) -> None:
     response = ApiClient(base_url).request("GET", "/api/health")
     assert response.status == 200
-    assert response.body == {"status": "ok"}
+    assert response.body == {"status": "ok", "user_count": 2}
 
 
 @pytest.mark.api
