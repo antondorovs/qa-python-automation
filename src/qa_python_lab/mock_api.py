@@ -67,7 +67,14 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                 self.end_headers()
                 self.wfile.write(html)
             elif path == "/api/health":
-                self._json(200, {"status": "ok", "user_count": len(users)})
+                self._json(
+                    200,
+                    {
+                        "status": "ok",
+                        "user_count": len(users),
+                        "next_user_id": max(item["id"] for item in users) + 1,
+                    },
+                )
             elif path == "/api/users":
                 self._json(200, users)
             elif path.startswith("/api/users/") and path.removeprefix("/api/users/").isdigit():

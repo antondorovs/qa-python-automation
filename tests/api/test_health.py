@@ -19,7 +19,11 @@ def test_repeated_health_checks_preserve_users_and_http_contract(base_url: str) 
             assert response.headers.get_content_type() == "application/json"
             assert response.headers.get_content_charset() == "utf-8"
             assert response.headers["Content-Length"] == str(len(body))
-            assert json.loads(body) == {"status": "ok", "user_count": len(original_users)}
+            assert json.loads(body) == {
+                "status": "ok",
+                "user_count": len(original_users),
+                "next_user_id": len(original_users) + 1,
+            }
 
     assert client.request("GET", "/api/users").body == original_users
     created = client.request(
@@ -52,7 +56,11 @@ def test_health_remains_available_after_user_creation_attempt(
 
     health = client.request("GET", "/api/health")
     assert health.status == 200
-    assert health.body == {"status": "ok", "user_count": len(expected_users)}
+    assert health.body == {
+        "status": "ok",
+        "user_count": len(expected_users),
+        "next_user_id": len(expected_users) + 1,
+    }
     assert client.request("GET", "/api/users").body == expected_users
 
 
@@ -63,6 +71,7 @@ def test_health_user_count_tracks_mixed_user_creation_attempts(base_url: str) ->
     assert client.request("GET", "/api/health").body == {
         "status": "ok",
         "user_count": len(expected_users),
+        "next_user_id": len(expected_users) + 1,
     }
 
     attempts = [
@@ -80,5 +89,9 @@ def test_health_user_count_tracks_mixed_user_creation_attempts(base_url: str) ->
 
         health = client.request("GET", "/api/health")
         assert health.status == 200
-        assert health.body == {"status": "ok", "user_count": len(expected_users)}
+        assert health.body == {
+            "status": "ok",
+            "user_count": len(expected_users),
+            "next_user_id": len(expected_users) + 1,
+        }
         assert client.request("GET", "/api/users").body == expected_users
