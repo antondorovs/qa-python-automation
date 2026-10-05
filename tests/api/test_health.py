@@ -144,3 +144,51 @@ def test_health_next_user_id_only_advances_after_successful_creation(base_url: s
         created.body,
         created_again.body,
     ]
+
+
+@pytest.mark.parametrize(
+    ("method", "expected_status"),
+    [
+        pytest.param("PUT", 405, id="put"),
+        pytest.param("PATCH", 405, id="patch"),
+        pytest.param("DELETE", 405, id="delete"),
+        pytest.param("OPTIONS", 204, id="options"),
+    ],
+)
+def test_health_next_user_id_survives_non_creating_methods(
+    base_url: str, method: str, expected_status: int
+) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+    payload = b'{"name": "Carla", "email": "carla@example.com"}'
+    request = Request(
+        f"{base_url}/api/users",
+        data=payload,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+
+    if expected_status == 204:
+        with urlopen(request, timeout=5) as response:
+            assert response.status == expected_status
+            assert response.read() == b""
+    else:
+        with pytest.raises(HTTPError) as error:
+            urlopen(request, timeout=5)
+        with error.value as response:
+            assert response.status == expected_status
+
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == original_health["next_user_id"]
+    assert client.request("GET", "/api/health").body == {
+        "status": "ok",
+        "user_count": original_health["user_count"] + 1,
+        "next_user_id": created.body["id"] + 1,
+    }
