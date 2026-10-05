@@ -1,5 +1,6 @@
 import json
-from urllib.request import urlopen
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -95,3 +96,51 @@ def test_health_user_count_tracks_mixed_user_creation_attempts(base_url: str) ->
             "next_user_id": len(expected_users) + 1,
         }
         assert client.request("GET", "/api/users").body == expected_users
+
+
+def test_health_next_user_id_only_advances_after_successful_creation(base_url: str) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    next_id = client.request("GET", "/api/health").body["next_user_id"]
+
+    malformed = Request(
+        f"{base_url}/api/users",
+        data=b'{"name": "Carla",',
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    with pytest.raises(HTTPError) as error:
+        urlopen(malformed, timeout=5)
+    with error.value as response:
+        assert response.status == 400
+        assert json.load(response) == {"error": "Invalid JSON"}
+    assert client.request("GET", "/api/health").body["next_user_id"] == next_id
+
+    invalid = client.request("POST", "/api/users", {"name": "Carla"})
+    assert invalid.status == 400
+    assert client.request("GET", "/api/health").body["next_user_id"] == next_id
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == next_id
+    next_id += 1
+    assert client.request("GET", "/api/health").body["next_user_id"] == next_id
+
+    duplicate = client.request(
+        "POST", "/api/users", {"name": "Another Carla", "email": " CARLA@example.com "}
+    )
+    assert duplicate.status == 409
+    assert client.request("GET", "/api/health").body["next_user_id"] == next_id
+
+    created_again = client.request(
+        "POST", "/api/users", {"name": "Dana", "email": "dana@example.com"}
+    )
+    assert created_again.status == 201
+    assert created_again.body["id"] == next_id
+    assert client.request("GET", "/api/health").body["next_user_id"] == next_id + 1
+    assert client.request("GET", "/api/users").body == original_users + [
+        created.body,
+        created_again.body,
+    ]
