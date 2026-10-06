@@ -46,6 +46,17 @@ def test_list_user_contract(base_url: str) -> None:
 
 @pytest.mark.api
 @pytest.mark.contract
+def test_list_users_honors_limit_query_parameter(base_url: str) -> None:
+    client = ApiClient(base_url)
+
+    response = client.request("GET", "/api/users?limit=1")
+
+    assert response.status == 200
+    assert response.body == [{"id": 1, "name": "Anna Smith", "email": "anna@example.com"}]
+
+
+@pytest.mark.api
+@pytest.mark.contract
 def test_create_user_and_read_back(base_url: str) -> None:
     client = ApiClient(base_url)
     created = client.request("POST", "/api/users", {

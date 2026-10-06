@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 
 def _handler_factory() -> type[BaseHTTPRequestHandler]:
@@ -47,7 +47,8 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
-            path = urlsplit(self.path).path
+            request_url = urlsplit(self.path)
+            path = request_url.path
             if path == "/":
                 html = (
                     b"<!doctype html><html><head><title>QA Python Lab</title></head>"
@@ -76,7 +77,18 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                     },
                 )
             elif path == "/api/users":
-                self._json(200, users)
+                query = parse_qs(request_url.query, keep_blank_values=True)
+                limit_values = query.get("limit")
+                if limit_values is None:
+                    self._json(200, users)
+                elif (
+                    len(limit_values) != 1
+                    or not limit_values[0].isdigit()
+                    or limit_values[0] == "0"
+                ):
+                    self._json(400, {"error": "limit must be a positive integer"})
+                else:
+                    self._json(200, users[: int(limit_values[0])])
             elif path.startswith("/api/users/") and path.removeprefix("/api/users/").isdigit():
                 user_id = int(path.rsplit("/", 1)[1])
                 user = next((item for item in users if item["id"] == user_id), None)
