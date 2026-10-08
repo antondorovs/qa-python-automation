@@ -88,6 +88,39 @@ def test_list_users_combines_offset_and_limit_after_creation(base_url: str) -> N
 @pytest.mark.parametrize(
     "query",
     [
+        pytest.param("offset=", id="empty"),
+        pytest.param("offset=-1", id="negative"),
+        pytest.param("offset=1.5", id="fractional"),
+        pytest.param("offset=abc", id="non-numeric"),
+        pytest.param("offset=1&offset=1", id="repeated-same"),
+        pytest.param("offset=1&offset=2", id="repeated-different"),
+        pytest.param("offset=1&offset=2&limit=1", id="repeated-with-limit"),
+    ],
+)
+def test_invalid_list_offset_preserves_users_and_next_id(base_url: str, query: str) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+
+    rejected = client.request("GET", f"/api/users?{query}")
+    assert rejected.status == 400
+    assert rejected.body == {"error": "offset must be a non-negative integer"}
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Casey", "email": "casey@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == original_health["next_user_id"]
+    assert client.request("GET", "/api/users").body == original_users + [created.body]
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    "query",
+    [
         pytest.param("limit=", id="empty"),
         pytest.param("limit=0", id="zero"),
         pytest.param("limit=-1", id="negative"),
