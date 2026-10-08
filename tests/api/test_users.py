@@ -57,6 +57,15 @@ def test_list_users_honors_limit_query_parameter(base_url: str) -> None:
 
 @pytest.mark.api
 @pytest.mark.contract
+def test_list_users_honors_offset_query_parameter(base_url: str) -> None:
+    response = ApiClient(base_url).request("GET", "/api/users?offset=1")
+
+    assert response.status == 200
+    assert response.body == [{"id": 2, "name": "Brian Miller", "email": "brian@example.com"}]
+
+
+@pytest.mark.api
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "query",
     [

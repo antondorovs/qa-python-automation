@@ -79,16 +79,22 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             elif path == "/api/users":
                 query = parse_qs(request_url.query, keep_blank_values=True)
                 limit_values = query.get("limit")
-                if limit_values is None:
-                    self._json(200, users)
+                offset_values = query.get("offset", ["0"])
+                if len(offset_values) != 1 or not offset_values[0].isdigit():
+                    self._json(400, {"error": "offset must be a non-negative integer"})
                 elif (
-                    len(limit_values) != 1
-                    or not limit_values[0].isdigit()
-                    or limit_values[0] == "0"
+                    limit_values is not None
+                    and (
+                        len(limit_values) != 1
+                        or not limit_values[0].isdigit()
+                        or limit_values[0] == "0"
+                    )
                 ):
                     self._json(400, {"error": "limit must be a positive integer"})
                 else:
-                    self._json(200, users[: int(limit_values[0])])
+                    offset = int(offset_values[0])
+                    limit = int(limit_values[0]) if limit_values else None
+                    self._json(200, users[offset : offset + limit if limit else None])
             elif path.startswith("/api/users/") and path.removeprefix("/api/users/").isdigit():
                 user_id = int(path.rsplit("/", 1)[1])
                 user = next((item for item in users if item["id"] == user_id), None)
