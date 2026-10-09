@@ -66,6 +66,19 @@ def test_list_users_honors_offset_query_parameter(base_url: str) -> None:
 
 @pytest.mark.api
 @pytest.mark.contract
+def test_list_users_rejects_unknown_query_parameter(base_url: str) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+
+    response = client.request("GET", "/api/users?sort=name")
+
+    assert response.status == 400
+    assert response.body == {"error": "unsupported user list query parameter"}
+    assert client.request("GET", "/api/users").body == original_users
+
+
+@pytest.mark.api
+@pytest.mark.contract
 def test_list_users_combines_offset_and_limit_after_creation(base_url: str) -> None:
     client = ApiClient(base_url)
     created = client.request(

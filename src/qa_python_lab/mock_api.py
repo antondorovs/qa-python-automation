@@ -80,7 +80,10 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                 query = parse_qs(request_url.query, keep_blank_values=True)
                 limit_values = query.get("limit")
                 offset_values = query.get("offset", ["0"])
-                if len(offset_values) != 1 or not offset_values[0].isdigit():
+                unsupported_parameters = set(query) - {"limit", "offset"}
+                if unsupported_parameters:
+                    self._json(400, {"error": "unsupported user list query parameter"})
+                elif len(offset_values) != 1 or not offset_values[0].isdigit():
                     self._json(400, {"error": "offset must be a non-negative integer"})
                 elif (
                     limit_values is not None
