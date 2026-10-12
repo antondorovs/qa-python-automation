@@ -10,6 +10,16 @@ from threading import Thread
 from urllib.parse import parse_qs, urlsplit
 
 
+def _pagination_integer(values: list[str], minimum: int) -> int | None:
+    if len(values) != 1 or not values[0].isascii() or not values[0].isdecimal():
+        return None
+    try:
+        value = int(values[0])
+    except ValueError:
+        return None
+    return value if value >= minimum else None
+
+
 def _handler_factory() -> type[BaseHTTPRequestHandler]:
     users: list[dict[str, object]] = [
         {"id": 1, "name": "Anna Smith", "email": "anna@example.com"},
@@ -80,24 +90,20 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                 query = parse_qs(request_url.query, keep_blank_values=True)
                 limit_values = query.get("limit")
                 offset_values = query.get("offset", ["0"])
+                offset = _pagination_integer(offset_values, minimum=0)
+                limit = (
+                    _pagination_integer(limit_values, minimum=1) if limit_values else None
+                )
                 unsupported_parameters = set(query) - {"limit", "offset"}
                 if unsupported_parameters:
                     self._json(400, {"error": "unsupported user list query parameter"})
-                elif len(offset_values) != 1 or not offset_values[0].isdigit():
+                elif offset is None:
                     self._json(400, {"error": "offset must be a non-negative integer"})
-                elif (
-                    limit_values is not None
-                    and (
-                        len(limit_values) != 1
-                        or not limit_values[0].isdigit()
-                        or limit_values[0] == "0"
-                    )
-                ):
+                elif limit_values is not None and limit is None:
                     self._json(400, {"error": "limit must be a positive integer"})
                 else:
-                    offset = int(offset_values[0])
-                    limit = int(limit_values[0]) if limit_values else None
-                    self._json(200, users[offset : offset + limit if limit else None])
+                    end = offset + limit if limit is not None else None
+                    self._json(200, users[offset:end])
             elif path.startswith("/api/users/") and path.removeprefix("/api/users/").isdigit():
                 user_id = int(path.rsplit("/", 1)[1])
                 user = next((item for item in users if item["id"] == user_id), None)

@@ -105,6 +105,8 @@ def test_list_users_combines_offset_and_limit_after_creation(base_url: str) -> N
         pytest.param("offset=-1", id="negative"),
         pytest.param("offset=1.5", id="fractional"),
         pytest.param("offset=abc", id="non-numeric"),
+        pytest.param("offset=%C2%B2", id="superscript-digit"),
+        pytest.param("offset=%D9%A1", id="non-ascii-digit"),
         pytest.param("offset=1&offset=1", id="repeated-same"),
         pytest.param("offset=1&offset=2", id="repeated-different"),
         pytest.param("offset=1&offset=2&limit=1", id="repeated-with-limit"),
@@ -136,6 +138,9 @@ def test_invalid_list_offset_preserves_users_and_next_id(base_url: str, query: s
     [
         pytest.param("limit=", id="empty"),
         pytest.param("limit=0", id="zero"),
+        pytest.param("limit=00", id="zero-padded-zero"),
+        pytest.param("limit=%C2%B2", id="superscript-digit"),
+        pytest.param("limit=%D9%A1", id="non-ascii-digit"),
         pytest.param("limit=-1", id="negative"),
         pytest.param("limit=1.5", id="fractional"),
         pytest.param("limit=abc", id="non-numeric"),
