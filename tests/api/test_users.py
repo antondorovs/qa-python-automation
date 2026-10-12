@@ -66,6 +66,31 @@ def test_list_users_honors_offset_query_parameter(base_url: str) -> None:
 
 @pytest.mark.api
 @pytest.mark.contract
+@pytest.mark.parametrize(
+    ("query", "expected_ids"),
+    [
+        pytest.param("offset=00&limit=01", [1], id="zero-offset-single-user"),
+        pytest.param("offset=01&limit=01", [2], id="padded-offset-and-limit"),
+        pytest.param("offset=00", [1, 2], id="zero-offset-without-limit"),
+    ],
+)
+def test_zero_padded_pagination_preserves_state(
+    base_url: str, query: str, expected_ids: list[int]
+) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+
+    response = client.request("GET", f"/api/users?{query}")
+
+    assert response.status == 200
+    assert response.body == [user for user in original_users if user["id"] in expected_ids]
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+
+@pytest.mark.api
+@pytest.mark.contract
 def test_list_users_rejects_unknown_query_parameter(base_url: str) -> None:
     client = ApiClient(base_url)
     original_users = client.request("GET", "/api/users").body
@@ -105,6 +130,7 @@ def test_list_users_combines_offset_and_limit_after_creation(base_url: str) -> N
         pytest.param("offset=-1", id="negative"),
         pytest.param("offset=1.5", id="fractional"),
         pytest.param("offset=abc", id="non-numeric"),
+        pytest.param("offset=" + "9" * 5000, id="integer-conversion-limit"),
         pytest.param("offset=%C2%B2", id="superscript-digit"),
         pytest.param("offset=%D9%A1", id="non-ascii-digit"),
         pytest.param("offset=1&offset=1", id="repeated-same"),
@@ -144,6 +170,7 @@ def test_invalid_list_offset_preserves_users_and_next_id(base_url: str, query: s
         pytest.param("limit=-1", id="negative"),
         pytest.param("limit=1.5", id="fractional"),
         pytest.param("limit=abc", id="non-numeric"),
+        pytest.param("limit=" + "9" * 5000, id="integer-conversion-limit"),
         pytest.param("limit=1&limit=2", id="repeated"),
     ],
 )
