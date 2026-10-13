@@ -33,6 +33,22 @@ def test_missing_user_returns_404(base_url: str) -> None:
 
 @pytest.mark.api
 @pytest.mark.contract
+def test_oversized_user_id_returns_404_and_preserves_state(base_url: str) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+
+    response = client.request("GET", "/api/users/" + "9" * 5000)
+
+    assert response.status == 404
+    assert response.body == {"error": "User not found"}
+    assert client.request("GET", "/api/users/1").body == original_users[0]
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+
+@pytest.mark.api
+@pytest.mark.contract
 def test_list_user_contract(base_url: str) -> None:
     response = ApiClient(base_url).request("GET", "/api/users")
     assert response.status == 200

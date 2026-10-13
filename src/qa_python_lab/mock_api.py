@@ -105,7 +105,11 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                     end = offset + limit if limit is not None else None
                     self._json(200, users[offset:end])
             elif path.startswith("/api/users/") and path.removeprefix("/api/users/").isdigit():
-                user_id = int(path.rsplit("/", 1)[1])
+                try:
+                    user_id = int(path.rsplit("/", 1)[1])
+                except ValueError:
+                    self._json(404, {"error": "User not found"})
+                    return
                 user = next((item for item in users if item["id"] == user_id), None)
                 if user:
                     self._json(200, user)
