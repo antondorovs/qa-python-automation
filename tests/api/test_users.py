@@ -33,18 +33,37 @@ def test_missing_user_returns_404(base_url: str) -> None:
 
 @pytest.mark.api
 @pytest.mark.contract
-def test_oversized_user_id_returns_404_and_preserves_state(base_url: str) -> None:
+def test_oversized_user_id_preserves_http_contract_and_creation(base_url: str) -> None:
     client = ApiClient(base_url)
     original_users = client.request("GET", "/api/users").body
     original_health = client.request("GET", "/api/health").body
 
-    response = client.request("GET", "/api/users/" + "9" * 5000)
-
-    assert response.status == 404
-    assert response.body == {"error": "User not found"}
+    with pytest.raises(HTTPError) as error:
+        urlopen(f"{base_url}/api/users/" + "9" * 5000, timeout=5)
+    with error.value as response:
+        response_body = response.read()
+        assert response.status == 404
+        assert response.headers.get_content_type() == "application/json"
+        assert response.headers.get_content_charset() == "utf-8"
+        assert response.headers["Content-Length"] == str(len(response_body))
+        assert json.loads(response_body) == {"error": "User not found"}
     assert client.request("GET", "/api/users/1").body == original_users[0]
     assert client.request("GET", "/api/users").body == original_users
     assert client.request("GET", "/api/health").body == original_health
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Casey", "email": "casey@example.com"}
+    )
+    assert created.status == 201
+    assert created.body == {
+        "id": original_health["next_user_id"],
+        "name": "Casey",
+        "email": "casey@example.com",
+    }
+    fetched = client.request("GET", f"/api/users/{created.body['id']}")
+    assert fetched.status == 200
+    assert fetched.body == created.body
+    assert client.request("GET", "/api/users").body == original_users + [created.body]
 
 
 @pytest.mark.api
