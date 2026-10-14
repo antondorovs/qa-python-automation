@@ -136,7 +136,13 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                 return
             normalized_email = body["email"].strip().lower()
             local_part, separator, domain = normalized_email.partition("@")
-            if not separator or not local_part or not domain or "@" in domain:
+            if (
+                not separator
+                or not local_part
+                or not domain
+                or "@" in domain
+                or any(character.isspace() for character in normalized_email)
+            ):
                 self._json(400, {"error": "valid email is required"})
                 return
             if any(item["email"].strip().lower() == normalized_email for item in users):

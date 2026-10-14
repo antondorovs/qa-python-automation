@@ -290,7 +290,16 @@ def test_invalid_user_name_does_not_change_users_or_consume_id(base_url: str, na
 
 
 @pytest.mark.api
-@pytest.mark.parametrize("email", ["carla.example.com", "@example.com", "carla@"])
+@pytest.mark.parametrize(
+    "email",
+    [
+        "carla.example.com",
+        "@example.com",
+        "carla@",
+        pytest.param("car la@example.com", id="space-in-local-part"),
+        pytest.param("carla@exam ple.com", id="space-in-domain"),
+    ],
+)
 def test_create_user_with_malformed_email_is_rejected(base_url: str, email: str) -> None:
     client = ApiClient(base_url)
     response = client.request("POST", "/api/users", {"name": "Carla", "email": email})
