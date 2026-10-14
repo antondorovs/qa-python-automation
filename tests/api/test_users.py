@@ -230,11 +230,19 @@ def test_invalid_list_limit_preserves_users_and_next_id(base_url: str, query: st
 
 @pytest.mark.api
 @pytest.mark.contract
-def test_create_user_and_read_back(base_url: str) -> None:
+@pytest.mark.parametrize(
+    "email",
+    [
+        pytest.param(" CARLA@example.com ", id="surrounding-spaces"),
+        pytest.param("\tCARLA@example.com\r\n", id="surrounding-tabs-and-newlines"),
+        pytest.param("\u00a0CARLA@example.com\u2003", id="surrounding-unicode-whitespace"),
+    ],
+)
+def test_create_user_and_read_back(base_url: str, email: str) -> None:
     client = ApiClient(base_url)
     created = client.request("POST", "/api/users", {
         "name": " Carla ",
-        "email": " CARLA@example.com ",
+        "email": email,
     })
     assert created.status == 201
     assert created.body == {"id": 3, "name": "Carla", "email": "carla@example.com"}
@@ -290,6 +298,7 @@ def test_invalid_user_name_does_not_change_users_or_consume_id(base_url: str, na
 
 
 @pytest.mark.api
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "email",
     [
@@ -298,14 +307,38 @@ def test_invalid_user_name_does_not_change_users_or_consume_id(base_url: str, na
         "carla@",
         pytest.param("car la@example.com", id="space-in-local-part"),
         pytest.param("carla@exam ple.com", id="space-in-domain"),
+        pytest.param("car\tla@example.com", id="tab-in-local-part"),
+        pytest.param("carla@exam\tple.com", id="tab-in-domain"),
+        pytest.param("car\nla@example.com", id="newline-in-local-part"),
+        pytest.param("carla@exam\nple.com", id="newline-in-domain"),
+        pytest.param("car\u00a0la@example.com", id="unicode-space-in-local-part"),
+        pytest.param("carla@exam\u2003ple.com", id="unicode-space-in-domain"),
     ],
 )
 def test_create_user_with_malformed_email_is_rejected(base_url: str, email: str) -> None:
     client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+
     response = client.request("POST", "/api/users", {"name": "Carla", "email": email})
     assert response.status == 400
     assert response.body == {"error": "valid email is required"}
-    assert len(client.request("GET", "/api/users").body) == 2
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body == {
+        "id": original_health["next_user_id"],
+        "name": "Carla",
+        "email": "carla@example.com",
+    }
+    fetched = client.request("GET", f"/api/users/{created.body['id']}")
+    assert fetched.status == 200
+    assert fetched.body == created.body
+    assert client.request("GET", "/api/users").body == original_users + [created.body]
 
 
 @pytest.mark.api
