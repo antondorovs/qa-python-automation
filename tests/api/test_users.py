@@ -352,6 +352,7 @@ def test_create_user_with_malformed_email_is_rejected(base_url: str, email: str)
             id="trailing-data",
         ),
         pytest.param(b"\xff", id="invalid-utf8"),
+        pytest.param(b"[" * 10000 + b"0" + b"]" * 10000, id="excessive-nesting"),
     ],
 )
 def test_malformed_json_is_rejected_without_creating_user(base_url: str, body: bytes) -> None:

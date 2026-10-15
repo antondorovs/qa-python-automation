@@ -125,7 +125,7 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             try:
                 size = int(self.headers.get("Content-Length", "0"))
                 body = json.loads(self.rfile.read(size))
-            except (ValueError, UnicodeDecodeError):
+            except (ValueError, UnicodeDecodeError, RecursionError):
                 self._json(400, {"error": "Invalid JSON"})
                 return
             if not isinstance(body, dict) or not all(
