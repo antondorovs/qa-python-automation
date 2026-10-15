@@ -342,6 +342,7 @@ def test_create_user_with_malformed_email_is_rejected(base_url: str, email: str)
 
 
 @pytest.mark.api
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "body",
     [
@@ -375,8 +376,12 @@ def test_malformed_json_preserves_state_and_allows_valid_creation(
     with pytest.raises(HTTPError) as error:
         urlopen(request, timeout=5)
     with error.value as response:
+        response_body = response.read()
         assert response.status == 400
-        assert json.load(response) == {"error": "Invalid JSON"}
+        assert response.headers.get_content_type() == "application/json"
+        assert response.headers.get_content_charset() == "utf-8"
+        assert response.headers["Content-Length"] == str(len(response_body))
+        assert json.loads(response_body) == {"error": "Invalid JSON"}
     assert client.request("GET", "/api/users").body == original_users
     assert client.request("GET", "/api/health").body == original_health
 
