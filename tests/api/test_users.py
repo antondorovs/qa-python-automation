@@ -353,11 +353,18 @@ def test_create_user_with_malformed_email_is_rejected(base_url: str, email: str)
         ),
         pytest.param(b"\xff", id="invalid-utf8"),
         pytest.param(b"[" * 10000 + b"0" + b"]" * 10000, id="excessive-nesting"),
+        pytest.param(
+            b'{"child":' * 10000 + b"0" + b"}" * 10000,
+            id="excessive-object-nesting",
+        ),
     ],
 )
-def test_malformed_json_is_rejected_without_creating_user(base_url: str, body: bytes) -> None:
+def test_malformed_json_preserves_state_and_allows_valid_creation(
+    base_url: str, body: bytes
+) -> None:
     client = ApiClient(base_url)
     original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
     request = Request(
         f"{base_url}/api/users",
         data=body,
@@ -371,6 +378,21 @@ def test_malformed_json_is_rejected_without_creating_user(base_url: str, body: b
         assert response.status == 400
         assert json.load(response) == {"error": "Invalid JSON"}
     assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body == {
+        "id": original_health["next_user_id"],
+        "name": "Carla",
+        "email": "carla@example.com",
+    }
+    fetched = client.request("GET", f"/api/users/{created.body['id']}")
+    assert fetched.status == 200
+    assert fetched.body == created.body
+    assert client.request("GET", "/api/users").body == original_users + [created.body]
 
 
 @pytest.mark.api
