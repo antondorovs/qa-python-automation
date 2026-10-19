@@ -42,6 +42,17 @@ def test_new_bad_order_changes_baseline(fixture_sql: Path) -> None:
 
 
 @pytest.mark.data
+def test_nonnumeric_order_amount_changes_only_its_rule(fixture_sql: Path) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO orders VALUES (5, 1, 'NEW', ?)", ("unknown",))
+        results = {result.name: result for result in evaluate_rules(connection)}
+
+    assert results["non_numeric_amounts"].actual == 1
+    assert not results["non_numeric_amounts"].passed
+    assert all(result.passed for name, result in results.items() if name != "non_numeric_amounts")
+
+
+@pytest.mark.data
 def test_duplicate_email_with_surrounding_whitespace_changes_baseline(fixture_sql: Path) -> None:
     with load_fixture(fixture_sql) as connection:
         connection.execute(
