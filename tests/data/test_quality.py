@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,54 @@ def test_nonnumeric_amount_rule_counts_each_bad_row(fixture_sql: Path) -> None:
     assert results["non_numeric_amounts"].actual == 3
     assert not results["non_numeric_amounts"].passed
     assert all(result.passed for name, result in results.items() if name != "non_numeric_amounts")
+
+
+@pytest.mark.data
+@pytest.mark.parametrize(
+    ("amount", "extra_non_positive"),
+    [
+        pytest.param(float("inf"), 0, id="positive-infinity"),
+        pytest.param(float("-inf"), 1, id="negative-infinity"),
+        pytest.param("1e999", 0, id="overflowed-positive-text"),
+        pytest.param("-1e999", 1, id="overflowed-negative-text"),
+    ],
+)
+def test_infinite_order_amount_changes_expected_rules(
+    fixture_sql: Path, amount: object, extra_non_positive: int
+) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO orders VALUES (5, 1, 'NEW', ?)", (amount,))
+        results = {result.name: result for result in evaluate_rules(connection)}
+
+    expected = BASELINE | {
+        "non_finite_amounts": 1,
+        "non_positive_amounts": BASELINE["non_positive_amounts"] + extra_non_positive,
+    }
+    assert {name: result.actual for name, result in results.items()} == expected
+    assert not results["non_finite_amounts"].passed
+
+
+@pytest.mark.data
+@pytest.mark.parametrize(
+    "amount",
+    [
+        pytest.param(sys.float_info.max, id="maximum-finite-real"),
+        pytest.param(-sys.float_info.max, id="minimum-finite-real"),
+        pytest.param(-(2**63), id="minimum-sqlite-integer"),
+        pytest.param(0, id="zero"),
+        pytest.param(12.5, id="positive-real"),
+    ],
+)
+def test_finite_amount_boundaries_preserve_other_rules(fixture_sql: Path, amount: float) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO orders VALUES (5, 1, 'NEW', ?)", (amount,))
+        results = {result.name: result for result in evaluate_rules(connection)}
+
+    expected = BASELINE | {
+        "non_positive_amounts": BASELINE["non_positive_amounts"] + (amount <= 0),
+    }
+    assert {name: result.actual for name, result in results.items()} == expected
+    assert results["non_finite_amounts"].passed
 
 
 @pytest.mark.data
