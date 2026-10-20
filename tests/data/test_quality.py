@@ -42,12 +42,55 @@ def test_new_bad_order_changes_baseline(fixture_sql: Path) -> None:
 
 
 @pytest.mark.data
-def test_nonnumeric_order_amount_changes_only_its_rule(fixture_sql: Path) -> None:
+@pytest.mark.parametrize(
+    "amount",
+    [
+        pytest.param("unknown", id="text"),
+        pytest.param("", id="empty-text"),
+        pytest.param("   ", id="whitespace"),
+        pytest.param(b"\x00\xff", id="binary"),
+    ],
+)
+def test_nonnumeric_order_amount_changes_only_its_rule(fixture_sql: Path, amount: object) -> None:
     with load_fixture(fixture_sql) as connection:
-        connection.execute("INSERT INTO orders VALUES (5, 1, 'NEW', ?)", ("unknown",))
+        connection.execute("INSERT INTO orders VALUES (5, 1, 'NEW', ?)", (amount,))
         results = {result.name: result for result in evaluate_rules(connection)}
 
     assert results["non_numeric_amounts"].actual == 1
+    assert not results["non_numeric_amounts"].passed
+    assert all(result.passed for name, result in results.items() if name != "non_numeric_amounts")
+
+
+@pytest.mark.data
+@pytest.mark.parametrize(
+    "amount",
+    [
+        pytest.param(10, id="integer"),
+        pytest.param(10.5, id="real"),
+        pytest.param("12.50", id="decimal-text"),
+        pytest.param("42", id="integer-text"),
+        pytest.param("3e2", id="exponent-text"),
+    ],
+)
+def test_numeric_order_amount_preserves_baseline(fixture_sql: Path, amount: object) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO orders VALUES (5, 1, 'NEW', ?)", (amount,))
+        results = evaluate_rules(connection)
+
+    assert {result.name: result.actual for result in results} == BASELINE
+    assert all(result.passed for result in results)
+
+
+@pytest.mark.data
+def test_nonnumeric_amount_rule_counts_each_bad_row(fixture_sql: Path) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.executemany(
+            "INSERT INTO orders VALUES (?, 1, 'NEW', ?)",
+            [(5, "unknown"), (6, b"\x01"), (7, "   "), (8, 42.5)],
+        )
+        results = {result.name: result for result in evaluate_rules(connection)}
+
+    assert results["non_numeric_amounts"].actual == 3
     assert not results["non_numeric_amounts"].passed
     assert all(result.passed for name, result in results.items() if name != "non_numeric_amounts")
 
