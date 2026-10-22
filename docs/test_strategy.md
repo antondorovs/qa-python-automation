@@ -15,6 +15,8 @@
   an unknown status is a new defect rather than part of the baseline. Payments
   must reference an existing order and have the `SUCCESS` status. User names
   must contain at least one non-whitespace character.
+  Duplicate email groups ignore letter case and surrounding ASCII whitespace
+  (spaces, tabs, line feeds, carriage returns, vertical tabs and form feeds).
 - **UI:** use Playwright with a real Chromium browser against the local page.
   It runs separately because browser installation is larger than core pytest.
 - **CI:** lint and core tests run in one job; the browser has its own job on

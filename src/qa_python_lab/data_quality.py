@@ -22,7 +22,10 @@ RULES = {
     "duplicate_emails": """
         SELECT COUNT(*) FROM (
             SELECT 1 FROM users
-            GROUP BY lower(trim(email)) HAVING COUNT(*) > 1
+            GROUP BY lower(trim(
+                email, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)
+            ))
+            HAVING COUNT(*) > 1
         )
     """,
     "blank_user_names": """

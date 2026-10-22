@@ -145,14 +145,19 @@ def test_finite_amount_boundaries_preserve_other_rules(fixture_sql: Path, amount
 
 
 @pytest.mark.data
-def test_duplicate_email_with_surrounding_whitespace_changes_baseline(fixture_sql: Path) -> None:
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "\r", "\v", "\f", " \t\r\n "])
+def test_duplicate_email_with_surrounding_whitespace_changes_baseline(
+    fixture_sql: Path, whitespace: str
+) -> None:
     with load_fixture(fixture_sql) as connection:
         connection.execute(
-            "INSERT INTO users VALUES (4, 'Duplicate Brian', ' BRIAN@example.com ')"
+            "INSERT INTO users VALUES (4, 'Duplicate Brian', ?)",
+            (f"{whitespace}BRIAN@example.com{whitespace}",),
         )
         results = {result.name: result for result in evaluate_rules(connection)}
     assert results["duplicate_emails"].actual == BASELINE["duplicate_emails"] + 1
     assert not results["duplicate_emails"].passed
+    assert all(result.passed for name, result in results.items() if name != "duplicate_emails")
 
 
 @pytest.mark.data
