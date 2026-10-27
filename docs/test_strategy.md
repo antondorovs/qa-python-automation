@@ -9,6 +9,9 @@
   existing users and the next created user ID, with JSON headers and body verified.
   User names are trimmed and email addresses are trimmed and lowercased
   before creation. Every test starts with fresh in-memory users.
+  The API client returns no body for HEAD responses, including errors, even when
+  headers advertise a JSON representation length. Subsequent GET requests still
+  decode successful and failed JSON responses normally.
 - **Data:** run SQL rules against an in-memory SQLite fixture. The baseline
   records known training defects; a separate test adds a defect to show that
   the rules detect drift. Order statuses are limited to `NEW` and `PAID`;

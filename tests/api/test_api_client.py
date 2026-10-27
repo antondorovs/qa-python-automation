@@ -1,8 +1,50 @@
+from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
+
 import pytest
 
 from qa_python_lab.api_client import ApiClient
 
 pytestmark = [pytest.mark.api, pytest.mark.contract]
+
+
+@pytest.fixture
+def head_server_url() -> Iterator[str]:
+    class Handler(BaseHTTPRequestHandler):
+        def do_HEAD(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+            self.send_response(int(self.path.removeprefix("/")))
+            self.send_header("Content-Type", "application/json")
+            # HEAD advertises the GET representation length but sends no body.
+            self.send_header("Content-Length", str(len(b'{"message": "example"}')))
+            self.end_headers()
+
+        def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
+            self.do_HEAD()
+            self.wfile.write(b'{"message": "example"}')
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+
+@pytest.mark.parametrize("status", [200, 404, 500])
+def test_client_handles_head_without_decoding_a_body(head_server_url: str, status: int) -> None:
+    client = ApiClient(head_server_url)
+
+    response = client.request("HEAD", f"/{status}")
+    assert response.status == status
+    assert response.body is None
+
+    following = client.request("GET", f"/{status}")
+    assert following.status == status
+    assert following.body == {"message": "example"}
 
 
 def test_client_handles_no_content_response(base_url: str) -> None:

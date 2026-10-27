@@ -34,5 +34,5 @@ class ApiClient:
         except HTTPError as error:
             response = error
         with response:
-            body = None if response.status == 204 else json.load(response)
+            body = None if method == "HEAD" or response.status == 204 else json.load(response)
             return ApiResponse(response.status, body)
