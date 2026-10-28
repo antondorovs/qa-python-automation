@@ -23,8 +23,8 @@ class QaReporter:
     @pytest.hookimpl
     def pytest_collection_finish(self, session: pytest.Session) -> None:
         self.selected = {
-            item.nodeid: tuple(sorted(marker.name for marker in item.iter_markers()
-                                      if marker.name in QA_TAGS))
+            item.nodeid: tuple(sorted({marker.name for marker in item.iter_markers()
+                                      if marker.name in QA_TAGS}))
             for item in session.items
         }
 
