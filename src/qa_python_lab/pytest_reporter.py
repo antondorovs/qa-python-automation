@@ -34,7 +34,7 @@ class QaReporter:
         self.durations[nodeid] = self.durations.get(nodeid, 0) + round(report.duration * 1000)
         if report.failed:
             self.outcomes[nodeid] = "failed"
-            self.errors[nodeid] = report.longreprtext[:1000]
+            self.errors[nodeid] = report.longreprtext[-1000:]
         elif report.skipped and self.outcomes.get(nodeid) != "failed":
             self.outcomes[nodeid] = "skipped"
         elif report.when == "call" and report.passed and self.outcomes.get(nodeid) != "failed":
