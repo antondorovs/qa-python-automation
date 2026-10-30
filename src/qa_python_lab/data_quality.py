@@ -32,6 +32,10 @@ RULES = {
         SELECT COUNT(*) FROM users
         WHERE trim(name, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)) = ''
     """,
+    "blank_emails": """
+        SELECT COUNT(*) FROM users
+        WHERE trim(email, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)) = ''
+    """,
     "orphan_orders": """
         SELECT COUNT(*) FROM orders o LEFT JOIN users u ON u.id = o.user_id
         WHERE u.id IS NULL
@@ -62,6 +66,7 @@ RULES = {
 BASELINE = {
     "duplicate_emails": 1,
     "blank_user_names": 0,
+    "blank_emails": 0,
     "orphan_orders": 1,
     "non_positive_amounts": 1,
     "non_numeric_amounts": 0,

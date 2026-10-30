@@ -172,6 +172,18 @@ def test_blank_user_name_changes_only_its_rule(fixture_sql: Path, name: str) -> 
 
 
 @pytest.mark.data
+@pytest.mark.parametrize("email", ["", " ", "\t", "\n", "\r", "\v", "\f", " \t\r\n "])
+def test_blank_email_changes_only_its_rule(fixture_sql: Path, email: str) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO users VALUES (4, 'Carla', ?)", (email,))
+        results = {result.name: result for result in evaluate_rules(connection)}
+
+    assert results["blank_emails"].actual == 1
+    assert not results["blank_emails"].passed
+    assert all(result.passed for name, result in results.items() if name != "blank_emails")
+
+
+@pytest.mark.data
 def test_blank_user_name_rule_counts_each_bad_row(fixture_sql: Path) -> None:
     with load_fixture(fixture_sql) as connection:
         connection.executemany(
