@@ -184,6 +184,39 @@ def test_blank_email_changes_only_its_rule(fixture_sql: Path, email: str) -> Non
 
 
 @pytest.mark.data
+@pytest.mark.parametrize("email", ["carla@example.com", " \tCARLA@example.com\r\n"])
+def test_nonblank_email_preserves_baseline(fixture_sql: Path, email: str) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO users VALUES (4, 'Carla', ?)", (email,))
+        results = evaluate_rules(connection)
+
+    assert {result.name: result.actual for result in results} == BASELINE
+    assert all(result.passed for result in results)
+
+
+@pytest.mark.data
+def test_blank_emails_count_rows_and_duplicate_groups_independently(fixture_sql: Path) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.executemany(
+            "INSERT INTO users VALUES (?, 'New user', ?)",
+            [
+                (4, ""),
+                (5, "\t"),
+                (6, " \r\n "),
+                (7, " \tCARLA@example.com\r\n"),
+                (8, "drew@example.com"),
+            ],
+        )
+        results = {result.name: result for result in evaluate_rules(connection)}
+
+    expected = BASELINE | {"blank_emails": 3, "duplicate_emails": BASELINE["duplicate_emails"] + 1}
+    assert {name: result.actual for name, result in results.items()} == expected
+    assert {name for name, result in results.items() if not result.passed} == {
+        "blank_emails", "duplicate_emails",
+    }
+
+
+@pytest.mark.data
 def test_blank_user_name_rule_counts_each_bad_row(fixture_sql: Path) -> None:
     with load_fixture(fixture_sql) as connection:
         connection.executemany(

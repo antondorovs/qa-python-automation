@@ -19,7 +19,9 @@
   must reference an existing order and have the `SUCCESS` status. User names
   must contain at least one non-whitespace character. Empty emails and emails
   containing only ASCII whitespace are counted by the `blank_emails` rule;
-  its expected baseline is zero.
+  its expected baseline is zero. Mixed-row checks distinguish the number of
+  blank email rows from the number of normalized duplicate groups and verify
+  that surrounding whitespace on a nonblank address does not create a blank-email defect.
   Duplicate email groups ignore letter case and surrounding ASCII whitespace
   (spaces, tabs, line feeds, carriage returns, vertical tabs and form feeds).
 - **UI:** use Playwright with a real Chromium browser against the local page.
