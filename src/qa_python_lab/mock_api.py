@@ -124,6 +124,8 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                 return
             try:
                 size = int(self.headers.get("Content-Length", "0"))
+                if size < 0:
+                    raise ValueError("Content-Length must be non-negative")
                 body = json.loads(self.rfile.read(size))
             except (ValueError, UnicodeDecodeError, RecursionError):
                 self._json(400, {"error": "Invalid JSON"})

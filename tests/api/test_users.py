@@ -1,10 +1,51 @@
 import json
+import socket
+from http.client import HTTPConnection
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
 
 from qa_python_lab.api_client import ApiClient
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize("content_length", ["-1", "-9"])
+@pytest.mark.parametrize("finish_request", [False, True], ids=["open-writer", "eof"])
+def test_negative_content_length_rejects_user_creation(
+    base_url: str, content_length: str, finish_request: bool
+) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+    connection = HTTPConnection(base_url.removeprefix("http://"), timeout=5)
+    try:
+        connection.request(
+            "POST", "/api/users",
+            body=json.dumps({"name": "Carla", "email": "carla@example.com"}),
+            headers={"Content-Type": "application/json", "Content-Length": content_length},
+        )
+        if finish_request:
+            # Also verify rejection when EOF makes the entire body available to read(-1).
+            assert connection.sock is not None
+            connection.sock.shutdown(socket.SHUT_WR)
+        response = connection.getresponse()
+        body = response.read()
+        assert response.status == 400
+        assert response.headers.get_content_type() == "application/json"
+        assert response.headers["Content-Length"] == str(len(body))
+        assert json.loads(body) == {"error": "Invalid JSON"}
+    finally:
+        connection.close()
+
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == original_health["next_user_id"]
 
 
 @pytest.mark.api

@@ -9,6 +9,8 @@
   existing users and the next created user ID, with JSON headers and body verified.
   User names are trimmed and email addresses are trimmed and lowercased
   before creation. Every test starts with fresh in-memory users.
+  Negative POST content lengths are rejected before reading the body, preserving
+  users and the next ID whether the client leaves its writer open or signals EOF.
   The API client returns no body for HEAD responses, including errors, even when
   headers advertise a JSON representation length. Subsequent GET requests still
   decode successful and failed JSON responses normally.
