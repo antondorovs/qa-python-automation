@@ -32,15 +32,18 @@ def _send_framed_request(
 @pytest.mark.contract
 @pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE", "OPTIONS"])
 @pytest.mark.parametrize("content_length", ["-1", "invalid"])
+@pytest.mark.parametrize("finish_request", [False, True], ids=["open-writer", "eof"])
 def test_discarded_body_rejects_invalid_content_length(
-    base_url: str, method: str, content_length: str
+    base_url: str, method: str, content_length: str, finish_request: bool
 ) -> None:
     client = ApiClient(base_url)
     original_users = client.request("GET", "/api/users").body
     original_health = client.request("GET", "/api/health").body
     connection = HTTPConnection(base_url.removeprefix("http://"), timeout=5)
     try:
-        response = _send_framed_request(connection, method, content_length, b"{}")
+        response = _send_framed_request(
+            connection, method, content_length, b"{}", finish_request=finish_request
+        )
         body = response.read()
         assert response.status == 400
         assert response.headers.get_content_type() == "application/json"

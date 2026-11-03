@@ -13,6 +13,8 @@
   users and the next ID whether the client leaves its writer open or signals EOF.
   OPTIONS and rejected PUT, PATCH and DELETE requests also validate content length
   before discarding payloads; negative or nonnumeric lengths return a JSON 400.
+  Network checks keep the client writer open as well as signal EOF, so malformed
+  lengths must be rejected without waiting for the client to finish sending.
   The API client returns no body for HEAD responses, including errors, even when
   headers advertise a JSON representation length. Subsequent GET requests still
   decode successful and failed JSON responses normally.
