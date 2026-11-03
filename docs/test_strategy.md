@@ -11,6 +11,8 @@
   before creation. Every test starts with fresh in-memory users.
   Negative POST content lengths are rejected before reading the body, preserving
   users and the next ID whether the client leaves its writer open or signals EOF.
+  OPTIONS and rejected PUT, PATCH and DELETE requests also validate content length
+  before discarding payloads; negative or nonnumeric lengths return a JSON 400.
   The API client returns no body for HEAD responses, including errors, even when
   headers advertise a JSON representation length. Subsequent GET requests still
   decode successful and failed JSON responses normally.

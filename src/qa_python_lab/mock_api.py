@@ -38,10 +38,21 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(data)
 
+        def _discard_body(self) -> bool:
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if size < 0:
+                    raise ValueError("Content-Length must be non-negative")
+            except ValueError:
+                self._json(400, {"error": "Invalid Content-Length"})
+                return False
+            self.rfile.read(size)
+            return True
+
         def _method_not_allowed(self) -> None:
             # Consume the rejected payload so closing the socket preserves the response.
-            size = int(self.headers.get("Content-Length", "0"))
-            self.rfile.read(size)
+            if not self._discard_body():
+                return
             self.send_response(405)
             self.send_header("Allow", "GET, POST")
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -168,8 +179,8 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             self._method_not_allowed()
 
         def do_OPTIONS(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
-            size = int(self.headers.get("Content-Length", "0"))
-            self.rfile.read(size)
+            if not self._discard_body():
+                return
             if urlsplit(self.path).path == "/api/users":
                 self._allowed_methods()
             else:

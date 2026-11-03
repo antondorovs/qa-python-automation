@@ -1,12 +1,61 @@
 import json
 import socket
-from http.client import HTTPConnection
+from http.client import HTTPConnection, HTTPResponse
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
 
 from qa_python_lab.api_client import ApiClient
+
+
+def _send_framed_request(
+    connection: HTTPConnection, method: str, content_length: str, payload: bytes,
+    finish_request: bool = True,
+) -> HTTPResponse:
+    connection.connect()
+    assert connection.sock is not None
+    # Send headers and payload together: an early rejection must not race a later body send.
+    connection.sock.sendall(
+        (f"{method} /api/users HTTP/1.0\r\nHost: localhost\r\n"
+         f"Content-Type: application/json\r\nContent-Length: {content_length}\r\n\r\n")
+        .encode("ascii") + payload
+    )
+    if finish_request:
+        connection.sock.shutdown(socket.SHUT_WR)
+    response = HTTPResponse(connection.sock)
+    response.begin()
+    return response
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE", "OPTIONS"])
+@pytest.mark.parametrize("content_length", ["-1", "invalid"])
+def test_discarded_body_rejects_invalid_content_length(
+    base_url: str, method: str, content_length: str
+) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+    connection = HTTPConnection(base_url.removeprefix("http://"), timeout=5)
+    try:
+        response = _send_framed_request(connection, method, content_length, b"{}")
+        body = response.read()
+        assert response.status == 400
+        assert response.headers.get_content_type() == "application/json"
+        assert response.headers["Content-Length"] == str(len(body))
+        assert json.loads(body) == {"error": "Invalid Content-Length"}
+    finally:
+        connection.close()
+
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == original_health["next_user_id"]
 
 
 @pytest.mark.api
@@ -21,16 +70,11 @@ def test_negative_content_length_rejects_user_creation(
     original_health = client.request("GET", "/api/health").body
     connection = HTTPConnection(base_url.removeprefix("http://"), timeout=5)
     try:
-        connection.request(
-            "POST", "/api/users",
-            body=json.dumps({"name": "Carla", "email": "carla@example.com"}),
-            headers={"Content-Type": "application/json", "Content-Length": content_length},
+        response = _send_framed_request(
+            connection, "POST", content_length,
+            json.dumps({"name": "Carla", "email": "carla@example.com"}).encode("utf-8"),
+            finish_request=finish_request,
         )
-        if finish_request:
-            # Also verify rejection when EOF makes the entire body available to read(-1).
-            assert connection.sock is not None
-            connection.sock.shutdown(socket.SHUT_WR)
-        response = connection.getresponse()
         body = response.read()
         assert response.status == 400
         assert response.headers.get_content_type() == "application/json"
