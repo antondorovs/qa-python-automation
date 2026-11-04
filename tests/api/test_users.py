@@ -1,5 +1,6 @@
 import json
 import socket
+import sys
 from http.client import HTTPConnection, HTTPResponse
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -31,7 +32,9 @@ def _send_framed_request(
 @pytest.mark.api
 @pytest.mark.contract
 @pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE", "OPTIONS"])
-@pytest.mark.parametrize("content_length", ["-1", "invalid"])
+@pytest.mark.parametrize(
+    "content_length", ["-1", "invalid", pytest.param(str(sys.maxsize + 1), id="oversized")]
+)
 @pytest.mark.parametrize("finish_request", [False, True], ids=["open-writer", "eof"])
 def test_discarded_body_rejects_invalid_content_length(
     base_url: str, method: str, content_length: str, finish_request: bool
@@ -63,9 +66,11 @@ def test_discarded_body_rejects_invalid_content_length(
 
 @pytest.mark.api
 @pytest.mark.contract
-@pytest.mark.parametrize("content_length", ["-1", "-9"])
+@pytest.mark.parametrize(
+    "content_length", ["-1", "-9", pytest.param(str(sys.maxsize + 1), id="oversized")]
+)
 @pytest.mark.parametrize("finish_request", [False, True], ids=["open-writer", "eof"])
-def test_negative_content_length_rejects_user_creation(
+def test_invalid_content_length_rejects_user_creation(
     base_url: str, content_length: str, finish_request: bool
 ) -> None:
     client = ApiClient(base_url)

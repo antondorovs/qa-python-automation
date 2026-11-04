@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -41,8 +42,8 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
         def _discard_body(self) -> bool:
             try:
                 size = int(self.headers.get("Content-Length", "0"))
-                if size < 0:
-                    raise ValueError("Content-Length must be non-negative")
+                if not 0 <= size <= sys.maxsize:
+                    raise ValueError("Content-Length is out of range")
             except ValueError:
                 self._json(400, {"error": "Invalid Content-Length"})
                 return False
@@ -135,8 +136,8 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                 return
             try:
                 size = int(self.headers.get("Content-Length", "0"))
-                if size < 0:
-                    raise ValueError("Content-Length must be non-negative")
+                if not 0 <= size <= sys.maxsize:
+                    raise ValueError("Content-Length is out of range")
                 body = json.loads(self.rfile.read(size))
             except (ValueError, UnicodeDecodeError, RecursionError):
                 self._json(400, {"error": "Invalid JSON"})

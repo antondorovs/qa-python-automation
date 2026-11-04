@@ -15,6 +15,8 @@
   before discarding payloads; negative or nonnumeric lengths return a JSON 400.
   Network checks keep the client writer open as well as signal EOF, so malformed
   lengths must be rejected without waiting for the client to finish sending.
+  Lengths above the platform's supported read size (`sys.maxsize`) also return
+  JSON 400 before reading, rather than disconnecting with an integer overflow.
   The API client returns no body for HEAD responses, including errors, even when
   headers advertise a JSON representation length. Subsequent GET requests still
   decode successful and failed JSON responses normally.
