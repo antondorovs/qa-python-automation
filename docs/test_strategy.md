@@ -9,11 +9,29 @@
   existing users and the next created user ID, with JSON headers and body verified.
   User names are trimmed and email addresses are trimmed and lowercased
   before creation. Every test starts with fresh in-memory users.
+  Negative POST content lengths are rejected before reading the body, preserving
+  users and the next ID whether the client leaves its writer open or signals EOF.
+  OPTIONS and rejected PUT, PATCH and DELETE requests also validate content length
+  before discarding payloads; negative or nonnumeric lengths return a JSON 400.
+  Network checks keep the client writer open as well as signal EOF, so malformed
+  lengths must be rejected without waiting for the client to finish sending.
+  Lengths above the platform's supported read size (`sys.maxsize`) also return
+  JSON 400 before reading, rather than disconnecting with an integer overflow.
+  The API client returns no body for HEAD responses, including errors, even when
+  headers advertise a JSON representation length. Subsequent GET requests still
+  decode successful and failed JSON responses normally.
 - **Data:** run SQL rules against an in-memory SQLite fixture. The baseline
   records known training defects; a separate test adds a defect to show that
   the rules detect drift. Order statuses are limited to `NEW` and `PAID`;
   an unknown status is a new defect rather than part of the baseline. Payments
-  must reference an existing order and have the `SUCCESS` status.
+  must reference an existing order and have the `SUCCESS` status. User names
+  must contain at least one non-whitespace character. Empty emails and emails
+  containing only ASCII whitespace are counted by the `blank_emails` rule;
+  its expected baseline is zero. Mixed-row checks distinguish the number of
+  blank email rows from the number of normalized duplicate groups and verify
+  that surrounding whitespace on a nonblank address does not create a blank-email defect.
+  Duplicate email groups ignore letter case and surrounding ASCII whitespace
+  (spaces, tabs, line feeds, carriage returns, vertical tabs and form feeds).
 - **UI:** use Playwright with a real Chromium browser against the local page.
   It runs separately because browser installation is larger than core pytest.
 - **CI:** lint and core tests run in one job; the browser has its own job on

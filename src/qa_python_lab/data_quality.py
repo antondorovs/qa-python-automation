@@ -22,14 +22,33 @@ RULES = {
     "duplicate_emails": """
         SELECT COUNT(*) FROM (
             SELECT 1 FROM users
-            GROUP BY lower(trim(email)) HAVING COUNT(*) > 1
+            GROUP BY lower(trim(
+                email, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)
+            ))
+            HAVING COUNT(*) > 1
         )
+    """,
+    "blank_user_names": """
+        SELECT COUNT(*) FROM users
+        WHERE trim(name, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)) = ''
+    """,
+    "blank_emails": """
+        SELECT COUNT(*) FROM users
+        WHERE trim(email, ' ' || char(9) || char(10) || char(11) || char(12) || char(13)) = ''
     """,
     "orphan_orders": """
         SELECT COUNT(*) FROM orders o LEFT JOIN users u ON u.id = o.user_id
         WHERE u.id IS NULL
     """,
     "non_positive_amounts": "SELECT COUNT(*) FROM orders WHERE amount <= 0",
+    "non_numeric_amounts": """
+        SELECT COUNT(*) FROM orders WHERE typeof(amount) NOT IN ('integer', 'real')
+    """,
+    "non_finite_amounts": """
+        SELECT COUNT(*) FROM orders
+        WHERE typeof(amount) IN ('integer', 'real')
+          AND (amount > 1.7976931348623157e308 OR amount < -1.7976931348623157e308)
+    """,
     "invalid_order_statuses": "SELECT COUNT(*) FROM orders WHERE status NOT IN ('NEW', 'PAID')",
     "orphan_payments": """
         SELECT COUNT(*) FROM payments p LEFT JOIN orders o ON o.id = p.order_id
@@ -46,8 +65,12 @@ RULES = {
 
 BASELINE = {
     "duplicate_emails": 1,
+    "blank_user_names": 0,
+    "blank_emails": 0,
     "orphan_orders": 1,
     "non_positive_amounts": 1,
+    "non_numeric_amounts": 0,
+    "non_finite_amounts": 0,
     "invalid_order_statuses": 0,
     "orphan_payments": 0,
     "invalid_payment_statuses": 0,
