@@ -224,7 +224,12 @@ def test_options_on_other_routes_returns_404_without_changing_users(
 ) -> None:
     client = ApiClient(base_url)
     original_users = client.request("GET", "/api/users").body
-    request = Request(f"{base_url}{path}", method="OPTIONS")
+    request = Request(
+        f"{base_url}{path}",
+        data=b'{"name":',
+        method="OPTIONS",
+        headers={"Content-Type": "application/json"},
+    )
 
     with pytest.raises(HTTPError) as error:
         urlopen(request, timeout=5)
@@ -237,6 +242,11 @@ def test_options_on_other_routes_returns_404_without_changing_users(
         assert json.loads(response_body) == {"error": "Resource not found"}
 
     assert client.request("GET", "/api/users").body == original_users
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == 3
 
 
 @pytest.mark.api
