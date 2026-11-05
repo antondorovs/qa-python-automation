@@ -180,6 +180,37 @@ def test_users_options_preserves_user_state(base_url: str, body: bytes) -> None:
 
 @pytest.mark.api
 @pytest.mark.contract
+def test_users_options_after_creation_keeps_discovery_and_next_id(base_url: str) -> None:
+    client = ApiClient(base_url)
+    first = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert first.status == 201
+    assert first.body["id"] == 3
+
+    request = Request(f"{base_url}/api/users?limit=1", method="OPTIONS")
+    with urlopen(request, timeout=5) as response:
+        assert response.status == 204
+        assert response.headers["Allow"] == "GET, POST, OPTIONS"
+        assert response.headers["Content-Length"] == "0"
+        assert response.read() == b""
+
+    assert client.request("GET", "/api/users/3").body == first.body
+    second = client.request(
+        "POST", "/api/users", {"name": "Dana", "email": "dana@example.com"}
+    )
+    assert second.status == 201
+    assert second.body["id"] == 4
+    assert client.request("GET", "/api/users").body == [
+        {"id": 1, "name": "Anna Smith", "email": "anna@example.com"},
+        {"id": 2, "name": "Brian Miller", "email": "brian@example.com"},
+        first.body,
+        second.body,
+    ]
+
+
+@pytest.mark.api
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "path",
     [
