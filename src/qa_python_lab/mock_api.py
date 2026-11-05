@@ -3,11 +3,22 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
+
+
+def _pagination_integer(values: list[str], minimum: int) -> int | None:
+    if len(values) != 1 or not values[0].isascii() or not values[0].isdecimal():
+        return None
+    try:
+        value = int(values[0])
+    except ValueError:
+        return None
+    return value if value >= minimum else None
 
 
 def _handler_factory() -> type[BaseHTTPRequestHandler]:
@@ -28,10 +39,21 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(data)
 
+        def _discard_body(self) -> bool:
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 0 <= size <= sys.maxsize:
+                    raise ValueError("Content-Length is out of range")
+            except ValueError:
+                self._json(400, {"error": "Invalid Content-Length"})
+                return False
+            self.rfile.read(size)
+            return True
+
         def _method_not_allowed(self) -> None:
             # Consume the rejected payload so closing the socket preserves the response.
-            size = int(self.headers.get("Content-Length", "0"))
-            self.rfile.read(size)
+            if not self._discard_body():
+                return
             self.send_response(405)
             self.send_header("Allow", "GET, POST")
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -47,7 +69,8 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
-            path = urlsplit(self.path).path
+            request_url = urlsplit(self.path)
+            path = request_url.path
             if path == "/":
                 html = (
                     b"<!doctype html><html><head><title>QA Python Lab</title></head>"
@@ -67,11 +90,38 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                 self.end_headers()
                 self.wfile.write(html)
             elif path == "/api/health":
-                self._json(200, {"status": "ok"})
+                self._json(
+                    200,
+                    {
+                        "status": "ok",
+                        "user_count": len(users),
+                        "next_user_id": max(item["id"] for item in users) + 1,
+                    },
+                )
             elif path == "/api/users":
-                self._json(200, users)
+                query = parse_qs(request_url.query, keep_blank_values=True)
+                limit_values = query.get("limit")
+                offset_values = query.get("offset", ["0"])
+                offset = _pagination_integer(offset_values, minimum=0)
+                limit = (
+                    _pagination_integer(limit_values, minimum=1) if limit_values else None
+                )
+                unsupported_parameters = set(query) - {"limit", "offset"}
+                if unsupported_parameters:
+                    self._json(400, {"error": "unsupported user list query parameter"})
+                elif offset is None:
+                    self._json(400, {"error": "offset must be a non-negative integer"})
+                elif limit_values is not None and limit is None:
+                    self._json(400, {"error": "limit must be a positive integer"})
+                else:
+                    end = offset + limit if limit is not None else None
+                    self._json(200, users[offset:end])
             elif path.startswith("/api/users/") and path.removeprefix("/api/users/").isdigit():
-                user_id = int(path.rsplit("/", 1)[1])
+                try:
+                    user_id = int(path.rsplit("/", 1)[1])
+                except ValueError:
+                    self._json(404, {"error": "User not found"})
+                    return
                 user = next((item for item in users if item["id"] == user_id), None)
                 if user:
                     self._json(200, user)
@@ -86,8 +136,10 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                 return
             try:
                 size = int(self.headers.get("Content-Length", "0"))
+                if not 0 <= size <= sys.maxsize:
+                    raise ValueError("Content-Length is out of range")
                 body = json.loads(self.rfile.read(size))
-            except (ValueError, UnicodeDecodeError):
+            except (ValueError, UnicodeDecodeError, RecursionError):
                 self._json(400, {"error": "Invalid JSON"})
                 return
             if not isinstance(body, dict) or not all(
@@ -98,7 +150,13 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                 return
             normalized_email = body["email"].strip().lower()
             local_part, separator, domain = normalized_email.partition("@")
-            if not separator or not local_part or not domain or "@" in domain:
+            if (
+                not separator
+                or not local_part
+                or not domain
+                or "@" in domain
+                or any(character.isspace() for character in normalized_email)
+            ):
                 self._json(400, {"error": "valid email is required"})
                 return
             if any(item["email"].strip().lower() == normalized_email for item in users):
@@ -122,8 +180,8 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
             self._method_not_allowed()
 
         def do_OPTIONS(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
-            size = int(self.headers.get("Content-Length", "0"))
-            self.rfile.read(size)
+            if not self._discard_body():
+                return
             if urlsplit(self.path).path == "/api/users":
                 self._allowed_methods()
             else:

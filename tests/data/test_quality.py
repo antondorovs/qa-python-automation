@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import pytest
@@ -42,14 +43,121 @@ def test_new_bad_order_changes_baseline(fixture_sql: Path) -> None:
 
 
 @pytest.mark.data
-def test_duplicate_email_with_surrounding_whitespace_changes_baseline(fixture_sql: Path) -> None:
+@pytest.mark.parametrize(
+    "amount",
+    [
+        pytest.param("unknown", id="text"),
+        pytest.param("", id="empty-text"),
+        pytest.param("   ", id="whitespace"),
+        pytest.param(b"\x00\xff", id="binary"),
+    ],
+)
+def test_nonnumeric_order_amount_changes_only_its_rule(fixture_sql: Path, amount: object) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO orders VALUES (5, 1, 'NEW', ?)", (amount,))
+        results = {result.name: result for result in evaluate_rules(connection)}
+
+    assert results["non_numeric_amounts"].actual == 1
+    assert not results["non_numeric_amounts"].passed
+    assert all(result.passed for name, result in results.items() if name != "non_numeric_amounts")
+
+
+@pytest.mark.data
+@pytest.mark.parametrize(
+    "amount",
+    [
+        pytest.param(10, id="integer"),
+        pytest.param(10.5, id="real"),
+        pytest.param("12.50", id="decimal-text"),
+        pytest.param("42", id="integer-text"),
+        pytest.param("3e2", id="exponent-text"),
+    ],
+)
+def test_numeric_order_amount_preserves_baseline(fixture_sql: Path, amount: object) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO orders VALUES (5, 1, 'NEW', ?)", (amount,))
+        results = evaluate_rules(connection)
+
+    assert {result.name: result.actual for result in results} == BASELINE
+    assert all(result.passed for result in results)
+
+
+@pytest.mark.data
+def test_nonnumeric_amount_rule_counts_each_bad_row(fixture_sql: Path) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.executemany(
+            "INSERT INTO orders VALUES (?, 1, 'NEW', ?)",
+            [(5, "unknown"), (6, b"\x01"), (7, "   "), (8, 42.5)],
+        )
+        results = {result.name: result for result in evaluate_rules(connection)}
+
+    assert results["non_numeric_amounts"].actual == 3
+    assert not results["non_numeric_amounts"].passed
+    assert all(result.passed for name, result in results.items() if name != "non_numeric_amounts")
+
+
+@pytest.mark.data
+@pytest.mark.parametrize(
+    ("amount", "extra_non_positive"),
+    [
+        pytest.param(float("inf"), 0, id="positive-infinity"),
+        pytest.param(float("-inf"), 1, id="negative-infinity"),
+        pytest.param("1e999", 0, id="overflowed-positive-text"),
+        pytest.param("-1e999", 1, id="overflowed-negative-text"),
+    ],
+)
+def test_infinite_order_amount_changes_expected_rules(
+    fixture_sql: Path, amount: object, extra_non_positive: int
+) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO orders VALUES (5, 1, 'NEW', ?)", (amount,))
+        results = {result.name: result for result in evaluate_rules(connection)}
+
+    expected = BASELINE | {
+        "non_finite_amounts": 1,
+        "non_positive_amounts": BASELINE["non_positive_amounts"] + extra_non_positive,
+    }
+    assert {name: result.actual for name, result in results.items()} == expected
+    assert not results["non_finite_amounts"].passed
+
+
+@pytest.mark.data
+@pytest.mark.parametrize(
+    "amount",
+    [
+        pytest.param(sys.float_info.max, id="maximum-finite-real"),
+        pytest.param(-sys.float_info.max, id="minimum-finite-real"),
+        pytest.param(-(2**63), id="minimum-sqlite-integer"),
+        pytest.param(0, id="zero"),
+        pytest.param(12.5, id="positive-real"),
+    ],
+)
+def test_finite_amount_boundaries_preserve_other_rules(fixture_sql: Path, amount: float) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO orders VALUES (5, 1, 'NEW', ?)", (amount,))
+        results = {result.name: result for result in evaluate_rules(connection)}
+
+    expected = BASELINE | {
+        "non_positive_amounts": BASELINE["non_positive_amounts"] + (amount <= 0),
+    }
+    assert {name: result.actual for name, result in results.items()} == expected
+    assert results["non_finite_amounts"].passed
+
+
+@pytest.mark.data
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "\r", "\v", "\f", " \t\r\n "])
+def test_duplicate_email_with_surrounding_whitespace_changes_baseline(
+    fixture_sql: Path, whitespace: str
+) -> None:
     with load_fixture(fixture_sql) as connection:
         connection.execute(
-            "INSERT INTO users VALUES (4, 'Duplicate Brian', ' BRIAN@example.com ')"
+            "INSERT INTO users VALUES (4, 'Duplicate Brian', ?)",
+            (f"{whitespace}BRIAN@example.com{whitespace}",),
         )
         results = {result.name: result for result in evaluate_rules(connection)}
     assert results["duplicate_emails"].actual == BASELINE["duplicate_emails"] + 1
     assert not results["duplicate_emails"].passed
+    assert all(result.passed for name, result in results.items() if name != "duplicate_emails")
 
 
 @pytest.mark.data
@@ -61,6 +169,51 @@ def test_blank_user_name_changes_only_its_rule(fixture_sql: Path, name: str) -> 
     assert results["blank_user_names"].actual == 1
     assert not results["blank_user_names"].passed
     assert all(result.passed for name, result in results.items() if name != "blank_user_names")
+
+
+@pytest.mark.data
+@pytest.mark.parametrize("email", ["", " ", "\t", "\n", "\r", "\v", "\f", " \t\r\n "])
+def test_blank_email_changes_only_its_rule(fixture_sql: Path, email: str) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO users VALUES (4, 'Carla', ?)", (email,))
+        results = {result.name: result for result in evaluate_rules(connection)}
+
+    assert results["blank_emails"].actual == 1
+    assert not results["blank_emails"].passed
+    assert all(result.passed for name, result in results.items() if name != "blank_emails")
+
+
+@pytest.mark.data
+@pytest.mark.parametrize("email", ["carla@example.com", " \tCARLA@example.com\r\n"])
+def test_nonblank_email_preserves_baseline(fixture_sql: Path, email: str) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.execute("INSERT INTO users VALUES (4, 'Carla', ?)", (email,))
+        results = evaluate_rules(connection)
+
+    assert {result.name: result.actual for result in results} == BASELINE
+    assert all(result.passed for result in results)
+
+
+@pytest.mark.data
+def test_blank_emails_count_rows_and_duplicate_groups_independently(fixture_sql: Path) -> None:
+    with load_fixture(fixture_sql) as connection:
+        connection.executemany(
+            "INSERT INTO users VALUES (?, 'New user', ?)",
+            [
+                (4, ""),
+                (5, "\t"),
+                (6, " \r\n "),
+                (7, " \tCARLA@example.com\r\n"),
+                (8, "drew@example.com"),
+            ],
+        )
+        results = {result.name: result for result in evaluate_rules(connection)}
+
+    expected = BASELINE | {"blank_emails": 3, "duplicate_emails": BASELINE["duplicate_emails"] + 1}
+    assert {name: result.actual for name, result in results.items()} == expected
+    assert {name for name, result in results.items() if not result.passed} == {
+        "blank_emails", "duplicate_emails",
+    }
 
 
 @pytest.mark.data
