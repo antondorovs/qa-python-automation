@@ -369,6 +369,40 @@ def test_invalid_list_limit_preserves_users_and_next_id(base_url: str, query: st
 @pytest.mark.api
 @pytest.mark.contract
 @pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("offset=1&limit=0", id="invalid-limit-with-offset"),
+        pytest.param("limit=1&limit=1&offset=1", id="repeated-same-limit-with-offset"),
+    ],
+)
+def test_invalid_limit_after_creation_preserves_users_and_next_id(
+    base_url: str, query: str
+) -> None:
+    client = ApiClient(base_url)
+    first = client.request(
+        "POST", "/api/users", {"name": "Casey", "email": "casey@example.com"}
+    )
+    assert first.status == 201
+    users = client.request("GET", "/api/users").body
+    health = client.request("GET", "/api/health").body
+
+    rejected = client.request("GET", f"/api/users?{query}")
+    assert rejected.status == 400
+    assert rejected.body == {"error": "limit must be a positive integer"}
+    assert client.request("GET", "/api/users").body == users
+    assert client.request("GET", "/api/health").body == health
+
+    second = client.request(
+        "POST", "/api/users", {"name": "Dana", "email": "dana@example.com"}
+    )
+    assert second.status == 201
+    assert second.body["id"] == health["next_user_id"]
+    assert client.request("GET", "/api/users").body == users + [second.body]
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize(
     "email",
     [
         pytest.param(" CARLA@example.com ", id="surrounding-spaces"),
