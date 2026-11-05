@@ -1,10 +1,103 @@
 import json
+import socket
+import sys
+from http.client import HTTPConnection, HTTPResponse
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
 
 from qa_python_lab.api_client import ApiClient
+
+
+def _send_framed_request(
+    connection: HTTPConnection, method: str, content_length: str, payload: bytes,
+    finish_request: bool = True,
+) -> HTTPResponse:
+    connection.connect()
+    assert connection.sock is not None
+    # Send headers and payload together: an early rejection must not race a later body send.
+    connection.sock.sendall(
+        (f"{method} /api/users HTTP/1.0\r\nHost: localhost\r\n"
+         f"Content-Type: application/json\r\nContent-Length: {content_length}\r\n\r\n")
+        .encode("ascii") + payload
+    )
+    if finish_request:
+        connection.sock.shutdown(socket.SHUT_WR)
+    response = HTTPResponse(connection.sock)
+    response.begin()
+    return response
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE", "OPTIONS"])
+@pytest.mark.parametrize(
+    "content_length", ["-1", "invalid", pytest.param(str(sys.maxsize + 1), id="oversized")]
+)
+@pytest.mark.parametrize("finish_request", [False, True], ids=["open-writer", "eof"])
+def test_discarded_body_rejects_invalid_content_length(
+    base_url: str, method: str, content_length: str, finish_request: bool
+) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+    connection = HTTPConnection(base_url.removeprefix("http://"), timeout=5)
+    try:
+        response = _send_framed_request(
+            connection, method, content_length, b"{}", finish_request=finish_request
+        )
+        body = response.read()
+        assert response.status == 400
+        assert response.headers.get_content_type() == "application/json"
+        assert response.headers["Content-Length"] == str(len(body))
+        assert json.loads(body) == {"error": "Invalid Content-Length"}
+    finally:
+        connection.close()
+
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == original_health["next_user_id"]
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    "content_length", ["-1", "-9", pytest.param(str(sys.maxsize + 1), id="oversized")]
+)
+@pytest.mark.parametrize("finish_request", [False, True], ids=["open-writer", "eof"])
+def test_invalid_content_length_rejects_user_creation(
+    base_url: str, content_length: str, finish_request: bool
+) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+    connection = HTTPConnection(base_url.removeprefix("http://"), timeout=5)
+    try:
+        response = _send_framed_request(
+            connection, "POST", content_length,
+            json.dumps({"name": "Carla", "email": "carla@example.com"}).encode("utf-8"),
+            finish_request=finish_request,
+        )
+        body = response.read()
+        assert response.status == 400
+        assert response.headers.get_content_type() == "application/json"
+        assert response.headers["Content-Length"] == str(len(body))
+        assert json.loads(body) == {"error": "Invalid JSON"}
+    finally:
+        connection.close()
+
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == original_health["next_user_id"]
 
 
 @pytest.mark.api
@@ -33,6 +126,41 @@ def test_missing_user_returns_404(base_url: str) -> None:
 
 @pytest.mark.api
 @pytest.mark.contract
+def test_oversized_user_id_preserves_http_contract_and_creation(base_url: str) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+
+    with pytest.raises(HTTPError) as error:
+        urlopen(f"{base_url}/api/users/" + "9" * 5000, timeout=5)
+    with error.value as response:
+        response_body = response.read()
+        assert response.status == 404
+        assert response.headers.get_content_type() == "application/json"
+        assert response.headers.get_content_charset() == "utf-8"
+        assert response.headers["Content-Length"] == str(len(response_body))
+        assert json.loads(response_body) == {"error": "User not found"}
+    assert client.request("GET", "/api/users/1").body == original_users[0]
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Casey", "email": "casey@example.com"}
+    )
+    assert created.status == 201
+    assert created.body == {
+        "id": original_health["next_user_id"],
+        "name": "Casey",
+        "email": "casey@example.com",
+    }
+    fetched = client.request("GET", f"/api/users/{created.body['id']}")
+    assert fetched.status == 200
+    assert fetched.body == created.body
+    assert client.request("GET", "/api/users").body == original_users + [created.body]
+
+
+@pytest.mark.api
+@pytest.mark.contract
 def test_list_user_contract(base_url: str) -> None:
     response = ApiClient(base_url).request("GET", "/api/users")
     assert response.status == 200
@@ -46,15 +174,197 @@ def test_list_user_contract(base_url: str) -> None:
 
 @pytest.mark.api
 @pytest.mark.contract
-def test_create_user_and_read_back(base_url: str) -> None:
+def test_list_users_honors_limit_query_parameter(base_url: str) -> None:
+    client = ApiClient(base_url)
+
+    response = client.request("GET", "/api/users?limit=1")
+
+    assert response.status == 200
+    assert response.body == [{"id": 1, "name": "Anna Smith", "email": "anna@example.com"}]
+
+
+@pytest.mark.api
+@pytest.mark.contract
+def test_list_users_honors_offset_query_parameter(base_url: str) -> None:
+    response = ApiClient(base_url).request("GET", "/api/users?offset=1")
+
+    assert response.status == 200
+    assert response.body == [{"id": 2, "name": "Brian Miller", "email": "brian@example.com"}]
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    ("query", "expected_ids"),
+    [
+        pytest.param("offset=00&limit=01", [1], id="zero-offset-single-user"),
+        pytest.param("offset=01&limit=01", [2], id="padded-offset-and-limit"),
+        pytest.param("offset=00", [1, 2], id="zero-offset-without-limit"),
+    ],
+)
+def test_zero_padded_pagination_preserves_state(
+    base_url: str, query: str, expected_ids: list[int]
+) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+
+    response = client.request("GET", f"/api/users?{query}")
+
+    assert response.status == 200
+    assert response.body == [user for user in original_users if user["id"] in expected_ids]
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+
+@pytest.mark.api
+@pytest.mark.contract
+def test_list_users_rejects_unknown_query_parameter(base_url: str) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+
+    response = client.request("GET", "/api/users?sort=name")
+
+    assert response.status == 400
+    assert response.body == {"error": "unsupported user list query parameter"}
+    assert client.request("GET", "/api/users").body == original_users
+
+
+@pytest.mark.api
+@pytest.mark.contract
+def test_list_users_combines_offset_and_limit_after_creation(base_url: str) -> None:
+    client = ApiClient(base_url)
+    created = client.request(
+        "POST", "/api/users", {"name": "Casey", "email": "casey@example.com"}
+    )
+    assert created.status == 201
+    assert created.body == {"id": 3, "name": "Casey", "email": "casey@example.com"}
+
+    response = client.request("GET", "/api/users?offset=1&limit=2")
+
+    assert response.status == 200
+    assert response.body == [
+        {"id": 2, "name": "Brian Miller", "email": "brian@example.com"},
+        created.body,
+    ]
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("offset=", id="empty"),
+        pytest.param("offset=-1", id="negative"),
+        pytest.param("offset=1.5", id="fractional"),
+        pytest.param("offset=abc", id="non-numeric"),
+        pytest.param("offset=" + "9" * 5000, id="integer-conversion-limit"),
+        pytest.param("offset=%C2%B2", id="superscript-digit"),
+        pytest.param("offset=%D9%A1", id="non-ascii-digit"),
+        pytest.param("offset=1&offset=1", id="repeated-same"),
+        pytest.param("offset=1&offset=2", id="repeated-different"),
+        pytest.param("offset=1&offset=2&limit=1", id="repeated-with-limit"),
+    ],
+)
+def test_invalid_list_offset_preserves_users_and_next_id(base_url: str, query: str) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+
+    rejected = client.request("GET", f"/api/users?{query}")
+    assert rejected.status == 400
+    assert rejected.body == {"error": "offset must be a non-negative integer"}
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Casey", "email": "casey@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == original_health["next_user_id"]
+    assert client.request("GET", "/api/users").body == original_users + [created.body]
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("limit=", id="empty"),
+        pytest.param("limit=0", id="zero"),
+        pytest.param("limit=00", id="zero-padded-zero"),
+        pytest.param("limit=%C2%B2", id="superscript-digit"),
+        pytest.param("limit=%D9%A1", id="non-ascii-digit"),
+        pytest.param("limit=-1", id="negative"),
+        pytest.param("limit=1.5", id="fractional"),
+        pytest.param("limit=abc", id="non-numeric"),
+        pytest.param("limit=" + "9" * 5000, id="integer-conversion-limit"),
+        pytest.param("limit=1&limit=2", id="repeated"),
+    ],
+)
+def test_invalid_list_limit_preserves_users_and_next_id(base_url: str, query: str) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+
+    rejected = client.request("GET", f"/api/users?{query}")
+    assert rejected.status == 400
+    assert rejected.body == {"error": "limit must be a positive integer"}
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Casey", "email": "casey@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == original_health["next_user_id"]
+    assert client.request("GET", "/api/users").body == original_users + [created.body]
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    "email",
+    [
+        pytest.param(" CARLA@example.com ", id="surrounding-spaces"),
+        pytest.param("\tCARLA@example.com\r\n", id="surrounding-tabs-and-newlines"),
+        pytest.param("\u00a0CARLA@example.com\u2003", id="surrounding-unicode-whitespace"),
+    ],
+)
+def test_create_user_and_read_back(base_url: str, email: str) -> None:
     client = ApiClient(base_url)
     created = client.request("POST", "/api/users", {
         "name": " Carla ",
-        "email": " CARLA@example.com ",
+        "email": email,
     })
     assert created.status == 201
     assert created.body == {"id": 3, "name": "Carla", "email": "carla@example.com"}
     assert client.request("GET", "/api/users/3").body == created.body
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    ("name", "expected_name"),
+    [
+        pytest.param(" \tCarla Smith\r\n", "Carla Smith", id="ascii-edge-whitespace"),
+        pytest.param(
+            "\u00a0Carla\u2003Smith\u00a0", "Carla\u2003Smith", id="unicode-edge-whitespace"
+        ),
+    ],
+)
+def test_valid_user_name_normalization_preserves_internal_content(
+    base_url: str, name: str, expected_name: str
+) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+
+    created = client.request("POST", "/api/users", {"name": name, "email": "carla@example.com"})
+    expected_user = {"id": 3, "name": expected_name, "email": "carla@example.com"}
+    assert created.status == 201
+    assert created.body == expected_user
+    assert client.request("GET", "/api/users/3").body == expected_user
+    assert client.request("GET", "/api/users").body == original_users + [expected_user]
 
 
 @pytest.mark.api
@@ -84,6 +394,8 @@ def test_invalid_create_is_rejected(base_url: str, payload: dict[str, object]) -
         pytest.param("\t", id="tab"),
         pytest.param("\n", id="newline"),
         pytest.param(" \t\r\n ", id="mixed-whitespace"),
+        pytest.param("\u00a0", id="nonbreaking-space"),
+        pytest.param("\u2003\u00a0", id="mixed-unicode-whitespace"),
         pytest.param(None, id="null"),
         pytest.param(42, id="non-string"),
     ],
@@ -106,16 +418,51 @@ def test_invalid_user_name_does_not_change_users_or_consume_id(base_url: str, na
 
 
 @pytest.mark.api
-@pytest.mark.parametrize("email", ["carla.example.com", "@example.com", "carla@"])
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    "email",
+    [
+        "carla.example.com",
+        "@example.com",
+        "carla@",
+        pytest.param("car la@example.com", id="space-in-local-part"),
+        pytest.param("carla@exam ple.com", id="space-in-domain"),
+        pytest.param("car\tla@example.com", id="tab-in-local-part"),
+        pytest.param("carla@exam\tple.com", id="tab-in-domain"),
+        pytest.param("car\nla@example.com", id="newline-in-local-part"),
+        pytest.param("carla@exam\nple.com", id="newline-in-domain"),
+        pytest.param("car\u00a0la@example.com", id="unicode-space-in-local-part"),
+        pytest.param("carla@exam\u2003ple.com", id="unicode-space-in-domain"),
+    ],
+)
 def test_create_user_with_malformed_email_is_rejected(base_url: str, email: str) -> None:
     client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+
     response = client.request("POST", "/api/users", {"name": "Carla", "email": email})
     assert response.status == 400
     assert response.body == {"error": "valid email is required"}
-    assert len(client.request("GET", "/api/users").body) == 2
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body == {
+        "id": original_health["next_user_id"],
+        "name": "Carla",
+        "email": "carla@example.com",
+    }
+    fetched = client.request("GET", f"/api/users/{created.body['id']}")
+    assert fetched.status == 200
+    assert fetched.body == created.body
+    assert client.request("GET", "/api/users").body == original_users + [created.body]
 
 
 @pytest.mark.api
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "body",
     [
@@ -126,11 +473,19 @@ def test_create_user_with_malformed_email_is_rejected(base_url: str, email: str)
             id="trailing-data",
         ),
         pytest.param(b"\xff", id="invalid-utf8"),
+        pytest.param(b"[" * 10000 + b"0" + b"]" * 10000, id="excessive-nesting"),
+        pytest.param(
+            b'{"child":' * 10000 + b"0" + b"}" * 10000,
+            id="excessive-object-nesting",
+        ),
     ],
 )
-def test_malformed_json_is_rejected_without_creating_user(base_url: str, body: bytes) -> None:
+def test_malformed_json_preserves_state_and_allows_valid_creation(
+    base_url: str, body: bytes
+) -> None:
     client = ApiClient(base_url)
     original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
     request = Request(
         f"{base_url}/api/users",
         data=body,
@@ -141,9 +496,28 @@ def test_malformed_json_is_rejected_without_creating_user(base_url: str, body: b
     with pytest.raises(HTTPError) as error:
         urlopen(request, timeout=5)
     with error.value as response:
+        response_body = response.read()
         assert response.status == 400
-        assert json.load(response) == {"error": "Invalid JSON"}
+        assert response.headers.get_content_type() == "application/json"
+        assert response.headers.get_content_charset() == "utf-8"
+        assert response.headers["Content-Length"] == str(len(response_body))
+        assert json.loads(response_body) == {"error": "Invalid JSON"}
     assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body == {
+        "id": original_health["next_user_id"],
+        "name": "Carla",
+        "email": "carla@example.com",
+    }
+    fetched = client.request("GET", f"/api/users/{created.body['id']}")
+    assert fetched.status == 200
+    assert fetched.body == created.body
+    assert client.request("GET", "/api/users").body == original_users + [created.body]
 
 
 @pytest.mark.api
