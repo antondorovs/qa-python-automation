@@ -814,3 +814,43 @@ def test_unsupported_user_method_returns_405(
     assert created.body == {"id": 3, "name": "Carla", "email": "carla@example.com"}
     assert client.request("GET", "/api/users/3").body == created.body
     assert client.request("GET", "/api/users").body == original_users + [created.body]
+
+
+@pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])
+@pytest.mark.parametrize("path", ["/api/users", "/api/users/3", "/api/users/999"])
+def test_unsupported_method_after_creation_preserves_users_and_next_id(
+    base_url: str, method: str, path: str
+) -> None:
+    client = ApiClient(base_url)
+    first = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert first.status == 201
+    assert first.body["id"] == 3
+    users_before = client.request("GET", "/api/users").body
+
+    request = Request(
+        f"{base_url}{path}",
+        data=b'{"name": "Changed", "email": "changed@example.com"}',
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    with pytest.raises(HTTPError) as error:
+        urlopen(request, timeout=5)
+    with error.value as response:
+        body = response.read()
+        assert response.status == 405
+        assert response.headers["Allow"] == "GET, POST"
+        assert response.headers["Content-Length"] == str(len(body))
+        assert json.loads(body) == {"error": "Method not allowed"}
+
+    assert client.request("GET", "/api/users").body == users_before
+    assert client.request("GET", "/api/users/3").body == first.body
+    second = client.request(
+        "POST", "/api/users", {"name": "Dana", "email": "dana@example.com"}
+    )
+    assert second.status == 201
+    assert second.body["id"] == 4
+    assert client.request("GET", "/api/users").body == users_before + [second.body]
