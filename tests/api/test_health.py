@@ -147,6 +147,48 @@ def test_health_next_user_id_only_advances_after_successful_creation(base_url: s
 
 
 @pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(b"null", id="null"),
+        pytest.param(b"[]", id="array"),
+        pytest.param(b'"Carla"', id="string"),
+    ],
+)
+def test_rejected_json_shape_does_not_consume_next_user_id(
+    base_url: str, payload: bytes
+) -> None:
+    client = ApiClient(base_url)
+    initial_health = client.request("GET", "/api/health").body
+    initial_users = client.request("GET", "/api/users").body
+    request = Request(
+        f"{base_url}/api/users",
+        data=payload,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+
+    with pytest.raises(HTTPError) as error:
+        urlopen(request, timeout=5)
+    with error.value as response:
+        assert response.status == 400
+        assert json.load(response) == {"error": "name and email are required"}
+
+    assert client.request("GET", "/api/health").body == initial_health
+    assert client.request("GET", "/api/users").body == initial_users
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == initial_health["next_user_id"]
+    assert client.request("GET", "/api/health").body == {
+        "status": "ok",
+        "user_count": initial_health["user_count"] + 1,
+        "next_user_id": created.body["id"] + 1,
+    }
+
+
+@pytest.mark.parametrize(
     ("method", "expected_status"),
     [
         pytest.param("PUT", 405, id="put"),
@@ -192,3 +234,31 @@ def test_health_next_user_id_survives_non_creating_methods(
         "user_count": original_health["user_count"] + 1,
         "next_user_id": created.body["id"] + 1,
     }
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("limit=0", id="invalid-limit"),
+        pytest.param("offset=-1", id="invalid-offset"),
+        pytest.param("unknown=1", id="unsupported-parameter"),
+    ],
+)
+def test_rejected_user_list_query_preserves_health_next_user_id(
+    base_url: str, query: str
+) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+    original_health = client.request("GET", "/api/health").body
+
+    rejected = client.request("GET", f"/api/users?{query}")
+    assert rejected.status == 400
+    assert client.request("GET", "/api/users").body == original_users
+    assert client.request("GET", "/api/health").body == original_health
+
+    created = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+    )
+    assert created.status == 201
+    assert created.body["id"] == original_health["next_user_id"]
+    assert client.request("GET", "/api/health").body["next_user_id"] == created.body["id"] + 1

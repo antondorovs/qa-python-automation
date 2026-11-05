@@ -23,8 +23,8 @@ class QaReporter:
     @pytest.hookimpl
     def pytest_collection_finish(self, session: pytest.Session) -> None:
         self.selected = {
-            item.nodeid: tuple(sorted(marker.name for marker in item.iter_markers()
-                                      if marker.name in QA_TAGS))
+            item.nodeid: tuple(sorted({marker.name for marker in item.iter_markers()
+                                      if marker.name in QA_TAGS}))
             for item in session.items
         }
 
@@ -34,7 +34,11 @@ class QaReporter:
         self.durations[nodeid] = self.durations.get(nodeid, 0) + round(report.duration * 1000)
         if report.failed:
             self.outcomes[nodeid] = "failed"
-            self.errors[nodeid] = report.longreprtext[:1000]
+            error = report.longreprtext
+            crash = getattr(report.longrepr, "reprcrash", None)
+            if crash is not None:
+                error = f"{error}\n{crash.message}"
+            self.errors[nodeid] = error[-1000:]
         elif report.skipped and self.outcomes.get(nodeid) != "failed":
             self.outcomes[nodeid] = "skipped"
         elif report.when == "call" and report.passed and self.outcomes.get(nodeid) != "failed":
