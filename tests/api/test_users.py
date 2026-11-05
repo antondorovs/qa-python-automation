@@ -58,6 +58,31 @@ def test_create_user_and_read_back(base_url: str) -> None:
 
 
 @pytest.mark.api
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    ("name", "expected_name"),
+    [
+        pytest.param(" \tCarla Smith\r\n", "Carla Smith", id="ascii-edge-whitespace"),
+        pytest.param(
+            "\u00a0Carla\u2003Smith\u00a0", "Carla\u2003Smith", id="unicode-edge-whitespace"
+        ),
+    ],
+)
+def test_valid_user_name_normalization_preserves_internal_content(
+    base_url: str, name: str, expected_name: str
+) -> None:
+    client = ApiClient(base_url)
+    original_users = client.request("GET", "/api/users").body
+
+    created = client.request("POST", "/api/users", {"name": name, "email": "carla@example.com"})
+    expected_user = {"id": 3, "name": expected_name, "email": "carla@example.com"}
+    assert created.status == 201
+    assert created.body == expected_user
+    assert client.request("GET", "/api/users/3").body == expected_user
+    assert client.request("GET", "/api/users").body == original_users + [expected_user]
+
+
+@pytest.mark.api
 @pytest.mark.parametrize(
     "payload",
     [
