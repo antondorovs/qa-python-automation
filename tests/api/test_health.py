@@ -5,8 +5,37 @@ from urllib.request import Request, urlopen
 import pytest
 
 from qa_python_lab.api_client import ApiClient
+from qa_python_lab.mock_api import local_server
 
 pytestmark = [pytest.mark.api, pytest.mark.contract]
+
+
+def test_health_starts_from_seed_state_after_previous_server_stops() -> None:
+    with local_server() as first_url:
+        first = ApiClient(first_url)
+        initial_health = first.request("GET", "/api/health").body
+        created = first.request(
+            "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+        )
+        assert created.status == 201
+        assert first.request("GET", "/api/health").body == {
+            "status": "ok",
+            "user_count": initial_health["user_count"] + 1,
+            "next_user_id": created.body["id"] + 1,
+        }
+
+    with local_server() as second_url:
+        second = ApiClient(second_url)
+        assert second.request("GET", "/api/health").body == initial_health
+        assert all(
+            user["email"] != "carla@example.com"
+            for user in second.request("GET", "/api/users").body
+        )
+        created_again = second.request(
+            "POST", "/api/users", {"name": "Carla", "email": "carla@example.com"}
+        )
+        assert created_again.status == 201
+        assert created_again.body["id"] == initial_health["next_user_id"]
 
 
 def test_repeated_health_checks_preserve_users_and_http_contract(base_url: str) -> None:
