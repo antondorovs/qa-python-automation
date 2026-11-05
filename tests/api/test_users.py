@@ -85,6 +85,22 @@ def test_list_users_combines_offset_and_limit_after_creation(base_url: str) -> N
 
 @pytest.mark.api
 @pytest.mark.contract
+def test_list_users_combined_page_truncates_after_creation(base_url: str) -> None:
+    client = ApiClient(base_url)
+    created = client.request(
+        "POST", "/api/users", {"name": "Casey", "email": "casey@example.com"}
+    )
+    assert created.status == 201
+    assert created.body == {"id": 3, "name": "Casey", "email": "casey@example.com"}
+
+    response = client.request("GET", "/api/users?offset=2&limit=2")
+
+    assert response.status == 200
+    assert response.body == [created.body]
+
+
+@pytest.mark.api
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "query",
     [
