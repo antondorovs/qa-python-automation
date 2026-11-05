@@ -612,6 +612,37 @@ def test_create_user_with_existing_normalized_email_is_rejected(base_url: str) -
 
 
 @pytest.mark.api
+@pytest.mark.contract
+def test_duplicate_of_new_user_does_not_consume_next_id(base_url: str) -> None:
+    client = ApiClient(base_url)
+    first = client.request(
+        "POST", "/api/users", {"name": "Carla", "email": " CARLA@example.com "}
+    )
+    assert first.status == 201
+    assert first.body == {"id": 3, "name": "Carla", "email": "carla@example.com"}
+
+    rejected = client.request(
+        "POST", "/api/users", {"name": "Another Carla", "email": "carla@EXAMPLE.com"}
+    )
+    assert rejected.status == 409
+    assert rejected.body == {"error": "email already exists"}
+    assert client.request("GET", "/api/users").body == [
+        {"id": 1, "name": "Anna Smith", "email": "anna@example.com"},
+        {"id": 2, "name": "Brian Miller", "email": "brian@example.com"},
+        first.body,
+    ]
+    assert client.request("GET", "/api/health").body == {
+        "status": "ok", "user_count": 3, "next_user_id": 4,
+    }
+
+    next_user = client.request(
+        "POST", "/api/users", {"name": "Dana", "email": "dana@example.com"}
+    )
+    assert next_user.status == 201
+    assert next_user.body["id"] == 4
+
+
+@pytest.mark.api
 def test_unknown_route_returns_404(base_url: str) -> None:
     response = ApiClient(base_url).request("GET", "/api/unknown")
     assert response.status == 404
