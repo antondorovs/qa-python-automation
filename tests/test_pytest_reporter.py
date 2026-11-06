@@ -129,3 +129,45 @@ def test_deselected():
     markdown = (output / "qa-summary.md").read_text(encoding="utf-8")
     assert "tags: api, smoke)" in markdown
     assert "test_deselected" not in markdown
+
+
+def test_fail_fast_keeps_unrun_selected_tests_in_saved_reports(tmp_path: Path) -> None:
+    (tmp_path / "test_fail_fast.py").write_text(
+        """from pathlib import Path
+
+def test_first_failure():
+    raise AssertionError("stop this run")
+
+def test_remaining():
+    Path("unexpected-execution.txt").write_text("ran", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+
+    completed = _run_reporter(tmp_path, "-x")
+
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert not (tmp_path / "unexpected-execution.txt").exists()
+    output = tmp_path / "qa-report"
+    summary = json.loads((output / "qa-summary.json").read_text(encoding="utf-8"))
+    assert summary["total"] == 2
+    assert summary["failed"] == summary["interrupted"] == 1
+    assert summary["passed"] == summary["skipped"] == 0
+    assert summary["quality_gate"] == {
+        "status": "blocked",
+        "reasons": ["1 failed test(s)", "1 interrupted test(s)"],
+    }
+    results = {result["nodeid"]: result for result in summary["tests"]}
+    failed = results["test_fail_fast.py::test_first_failure"]
+    assert failed["status"] == "failed"
+    assert "stop this run" in failed["error"]
+    remaining = results["test_fail_fast.py::test_remaining"]
+    assert remaining["status"] == "interrupted"
+    assert remaining["duration_ms"] == 0
+    assert remaining["error"] is None
+    markdown = (output / "qa-summary.md").read_text(encoding="utf-8")
+    assert "Quality gate: **blocked**" in markdown
+    assert "Interrupted: 1" in markdown
+    assert "1 interrupted test(s)" in markdown
+    assert "**failed** `test_fail_fast.py::test_first_failure`" in markdown
+    assert "**interrupted** `test_fail_fast.py::test_remaining`" in markdown
