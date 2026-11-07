@@ -138,7 +138,10 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 <= size <= sys.maxsize:
                     raise ValueError("Content-Length is out of range")
-                body = json.loads(self.rfile.read(size))
+                payload = self.rfile.read(size)
+                if len(payload) != size:
+                    raise ValueError("Request body ended before Content-Length bytes")
+                body = json.loads(payload)
             except (ValueError, UnicodeDecodeError, RecursionError):
                 self._json(400, {"error": "Invalid JSON"})
                 return

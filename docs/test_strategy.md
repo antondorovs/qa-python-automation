@@ -17,6 +17,8 @@
   lengths must be rejected without waiting for the client to finish sending.
   Lengths above the platform's supported read size (`sys.maxsize`) also return
   JSON 400 before reading, rather than disconnecting with an integer overflow.
+  POST rejects bodies that end before their declared length, even when the
+  received bytes form valid JSON. The rejection preserves users and the next ID.
   The API client returns no body for HEAD responses, including errors, even when
   headers advertise a JSON representation length. Subsequent GET requests still
   decode successful and failed JSON responses normally.

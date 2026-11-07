@@ -101,6 +101,29 @@ def test_invalid_content_length_rejects_user_creation(
 
 
 @pytest.mark.api
+@pytest.mark.contract
+def test_truncated_post_body_does_not_create_user(base_url: str) -> None:
+    client = ApiClient(base_url)
+    users = client.request("GET", "/api/users").body
+    health = client.request("GET", "/api/health").body
+    payload = {"name": "Carla", "email": "carla@example.com"}
+    encoded = json.dumps(payload).encode("utf-8")
+    connection = HTTPConnection(base_url.removeprefix("http://"), timeout=5)
+    try:
+        response = _send_framed_request(connection, "POST", str(len(encoded) + 1), encoded)
+        assert response.status == 400
+        assert json.loads(response.read()) == {"error": "Invalid JSON"}
+    finally:
+        connection.close()
+
+    assert client.request("GET", "/api/users").body == users
+    assert client.request("GET", "/api/health").body == health
+    created = client.request("POST", "/api/users", payload)
+    assert created.status == 201
+    assert created.body["id"] == health["next_user_id"]
+
+
+@pytest.mark.api
 @pytest.mark.smoke
 @pytest.mark.contract
 def test_health_check_contract(base_url: str) -> None:
