@@ -44,10 +44,11 @@ def _handler_factory() -> type[BaseHTTPRequestHandler]:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 <= size <= sys.maxsize:
                     raise ValueError("Content-Length is out of range")
+                if len(self.rfile.read(size)) != size:
+                    raise ValueError("Request body ended before Content-Length bytes")
             except ValueError:
                 self._json(400, {"error": "Invalid Content-Length"})
                 return False
-            self.rfile.read(size)
             return True
 
         def _method_not_allowed(self) -> None:

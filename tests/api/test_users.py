@@ -66,6 +66,19 @@ def test_discarded_body_rejects_invalid_content_length(
 
 @pytest.mark.api
 @pytest.mark.contract
+@pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE", "OPTIONS"])
+def test_discarded_body_rejects_early_eof(base_url: str, method: str) -> None:
+    connection = HTTPConnection(base_url.removeprefix("http://"), timeout=5)
+    try:
+        response = _send_framed_request(connection, method, "3", b"{}")
+        assert response.status == 400
+        assert json.loads(response.read()) == {"error": "Invalid Content-Length"}
+    finally:
+        connection.close()
+
+
+@pytest.mark.api
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "content_length", ["-1", "-9", pytest.param(str(sys.maxsize + 1), id="oversized")]
 )
