@@ -14,9 +14,16 @@ class BugReport:
     environment: str = "local"
 
     def to_markdown(self) -> str:
-        steps = "\n".join(f"{number}. {step}" for number, step in enumerate(self.steps, 1))
+        steps = []
+        for number, step in enumerate(self.steps, 1):
+            marker = f"{number}. "
+            first, *rest = step.split("\n")
+            steps.append(marker + first)
+            indent = " " * len(marker)
+            steps.extend(indent + line if line.strip() else "" for line in rest)
+        reproduction = "\n".join(steps)
         return (
             f"# {self.title}\n\nEnvironment: {self.environment}\n\n"
-            f"## Steps to reproduce\n{steps}\n\n"
+            f"## Steps to reproduce\n{reproduction}\n\n"
             f"## Expected\n{self.expected}\n\n## Actual\n{self.actual}\n"
         )
