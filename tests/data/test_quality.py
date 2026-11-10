@@ -1,9 +1,25 @@
+import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
 from qa_python_lab.data_quality import BASELINE, evaluate_rules, load_fixture
+
+
+@pytest.mark.data
+def test_fixture_load_closes_connection_when_sql_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixture = tmp_path / "invalid.sql"
+    fixture.write_text("SELECT * FROM missing_table;", encoding="utf-8")
+    with closing(sqlite3.connect(":memory:")) as connection:
+        monkeypatch.setattr(sqlite3, "connect", lambda _: connection)
+        with pytest.raises(sqlite3.OperationalError, match="no such table: missing_table"):
+            load_fixture(fixture)
+        with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+            connection.execute("SELECT 1")
 
 
 @pytest.mark.data

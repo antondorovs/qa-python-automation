@@ -79,8 +79,13 @@ BASELINE = {
 
 
 def load_fixture(path: Path) -> sqlite3.Connection:
+    script = path.read_text(encoding="utf-8")
     connection = sqlite3.connect(":memory:")
-    connection.executescript(path.read_text(encoding="utf-8"))
+    try:
+        connection.executescript(script)
+    except BaseException:
+        connection.close()
+        raise
     return connection
 
 
