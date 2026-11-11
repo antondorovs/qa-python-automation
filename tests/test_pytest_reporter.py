@@ -24,6 +24,49 @@ def _run_reporter(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def test_expected_failures_and_strict_unexpected_passes_are_reported(tmp_path: Path) -> None:
+    (tmp_path / "test_outcomes.py").write_text(
+        """import pytest
+
+def test_pass():
+    pass
+
+@pytest.mark.skip(reason="unavailable fixture")
+def test_skip():
+    pass
+
+@pytest.mark.xfail(reason="known defect", strict=True)
+def test_expected_failure():
+    assert False
+
+@pytest.mark.xfail(reason="fixed defect", strict=True)
+def test_unexpected_pass():
+    pass
+""",
+        encoding="utf-8",
+    )
+
+    completed = _run_reporter(tmp_path)
+
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    output = tmp_path / "qa-report"
+    summary = json.loads((output / "qa-summary.json").read_text(encoding="utf-8"))
+    assert summary["executed"] == 2
+    assert summary["passed"] == summary["failed"] == 1
+    assert summary["skipped"] == 2
+    assert summary["pass_rate"] == 50.0
+    assert summary["quality_gate"] == {"status": "blocked", "reasons": ["1 failed test(s)"]}
+    results = {test["nodeid"]: test for test in summary["tests"]}
+    assert results["test_outcomes.py::test_skip"]["status"] == "skipped"
+    assert results["test_outcomes.py::test_expected_failure"]["status"] == "skipped"
+    unexpected = results["test_outcomes.py::test_unexpected_pass"]
+    assert unexpected["status"] == "failed"
+    assert "fixed defect" in unexpected["error"]
+    markdown = (output / "qa-summary.md").read_text(encoding="utf-8")
+    assert "Quality gate: **blocked**" in markdown
+    assert "fixed defect" in markdown
+
+
 @pytest.mark.parametrize("context", ["", "Traceback context\n" * 100], ids=["short", "long"])
 def test_failure_excerpt_preserves_final_error(tmp_path: Path, context: str) -> None:
     reporter = QaReporter(tmp_path)
