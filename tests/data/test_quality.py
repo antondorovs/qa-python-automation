@@ -262,9 +262,10 @@ def test_unknown_order_status_changes_only_its_rule(fixture_sql: Path) -> None:
 
 
 @pytest.mark.data
-def test_orphan_payment_changes_only_its_rule(fixture_sql: Path) -> None:
+@pytest.mark.parametrize("order_id", [999, None], ids=["unknown-order", "missing-order-id"])
+def test_orphan_payment_changes_only_its_rule(fixture_sql: Path, order_id: int | None) -> None:
     with load_fixture(fixture_sql) as connection:
-        connection.execute("INSERT INTO payments VALUES (2, 999, 'SUCCESS')")
+        connection.execute("INSERT INTO payments VALUES (2, ?, 'SUCCESS')", (order_id,))
         results = {result.name: result for result in evaluate_rules(connection)}
     assert results["orphan_payments"].actual == 1
     assert not results["orphan_payments"].passed
