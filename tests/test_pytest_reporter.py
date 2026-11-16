@@ -24,6 +24,34 @@ def _run_reporter(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def test_all_skipped_run_blocks_saved_reports_even_with_successful_exit(tmp_path: Path) -> None:
+    (tmp_path / "test_unavailable.py").write_text(
+        """import pytest
+
+@pytest.fixture
+def unavailable():
+    pytest.skip("data unavailable")
+
+def test_requires_data(unavailable):
+    pytest.fail("the test body should not run")
+""",
+        encoding="utf-8",
+    )
+
+    completed = _run_reporter(tmp_path)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    output = tmp_path / "qa-report"
+    summary = json.loads((output / "qa-summary.json").read_text(encoding="utf-8"))
+    assert summary["total"] == summary["skipped"] == 1
+    assert summary["executed"] == 0
+    assert summary["quality_gate"] == {"status": "blocked", "reasons": ["No tests executed"]}
+    markdown = (output / "qa-summary.md").read_text(encoding="utf-8")
+    assert "Quality gate: **blocked**" in markdown
+    assert "No tests executed" in markdown
+    assert "**skipped** `test_unavailable.py::test_requires_data`" in markdown
+
+
 def test_expected_failures_and_strict_unexpected_passes_are_reported(tmp_path: Path) -> None:
     (tmp_path / "test_outcomes.py").write_text(
         """import pytest
