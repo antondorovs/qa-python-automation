@@ -24,6 +24,32 @@ def _run_reporter(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def test_collection_error_blocks_saved_reports_even_when_collected_tests_pass(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "test_valid.py").write_text("def test_ok():\n    pass\n", encoding="utf-8")
+    (tmp_path / "test_broken.py").write_text(
+        'raise RuntimeError("cannot collect tests")\n', encoding="utf-8"
+    )
+
+    completed = _run_reporter(tmp_path, "--continue-on-collection-errors")
+
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    output = tmp_path / "qa-report"
+    summary = json.loads((output / "qa-summary.json").read_text(encoding="utf-8"))
+    assert summary["total"] == summary["executed"] == summary["passed"] == 1
+    assert summary["failed"] == summary["interrupted"] == 0
+    assert summary["pass_rate"] == 100.0
+    assert summary["quality_gate"] == {
+        "status": "blocked",
+        "reasons": ["pytest exited with code 1"],
+    }
+    markdown = (output / "qa-summary.md").read_text(encoding="utf-8")
+    assert "**passed** `test_valid.py::test_ok`" in markdown
+    assert "Quality gate: **blocked**" in markdown
+    assert "pytest exited with code 1" in markdown
+
+
 def test_all_skipped_run_blocks_saved_reports_even_with_successful_exit(tmp_path: Path) -> None:
     (tmp_path / "test_unavailable.py").write_text(
         """import pytest
