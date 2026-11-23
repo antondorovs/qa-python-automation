@@ -147,7 +147,9 @@ def test_failure_excerpt_preserves_final_error(tmp_path: Path, context: str) -> 
     assert f"Failure: {message}" in render_markdown(summary)
 
 
-@pytest.mark.parametrize("phase", ["setup", "call", "teardown", "skip_teardown"])
+@pytest.mark.parametrize(
+    "phase", ["setup", "call", "teardown", "skip_teardown", "call_skip_teardown"]
+)
 def test_real_pytest_failure_blocks_saved_reports(tmp_path: Path, phase: str) -> None:
     (tmp_path / "test_scenario.py").write_text(
         f"""import pytest
@@ -159,13 +161,15 @@ def resource():
     if phase == "setup":
         raise RuntimeError("setup failure")
     yield
+    if phase == "call_skip_teardown":
+        pytest.skip("cleanup unavailable")
     if phase in ("teardown", "skip_teardown"):
         raise RuntimeError("teardown failure")
 
 def test_case(resource):
     if phase == "skip_teardown":
         pytest.skip("test data unavailable")
-    if phase == "call":
+    if phase in ("call", "call_skip_teardown"):
         raise AssertionError("call failure")
 """,
         encoding="utf-8",
@@ -183,7 +187,8 @@ def test_case(resource):
     result = summary["tests"][0]
     assert result["nodeid"] == "test_scenario.py::test_case"
     assert result["status"] == "failed"
-    expected_error = "teardown failure" if phase == "skip_teardown" else f"{phase} failure"
+    expected_phase = {"skip_teardown": "teardown", "call_skip_teardown": "call"}.get(phase, phase)
+    expected_error = f"{expected_phase} failure"
     assert expected_error in result["error"]
     markdown = (output / "qa-summary.md").read_text(encoding="utf-8")
     assert "Quality gate: **blocked**" in markdown
