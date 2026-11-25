@@ -304,3 +304,34 @@ def test_no_selected_tests_replaces_stale_success_report(tmp_path: Path, deselec
     assert "No tests executed" in markdown
     assert "pytest exited with code 5" in markdown
     assert "stale successful run" not in markdown
+
+
+def test_successful_rerun_removes_previous_failure_from_saved_reports(tmp_path: Path) -> None:
+    (tmp_path / "test_rerun.py").write_text(
+        'def test_old_failure():\n    raise AssertionError("previous run failed")\n'
+        'def test_new_success():\n    pass\n',
+        encoding="utf-8",
+    )
+    output = tmp_path / "qa-report"
+    failed = _run_reporter(tmp_path, "-k", "old_failure")
+    assert failed.returncode == 1, failed.stdout + failed.stderr
+    before = json.loads((output / "qa-summary.json").read_text(encoding="utf-8"))
+    assert before["failed"] == 1
+    assert before["quality_gate"]["status"] == "blocked"
+    assert "previous run failed" in (output / "qa-summary.md").read_text(encoding="utf-8")
+
+    passed = _run_reporter(tmp_path, "-k", "new_success")
+
+    assert passed.returncode == 0, passed.stdout + passed.stderr
+    summary = json.loads((output / "qa-summary.json").read_text(encoding="utf-8"))
+    assert summary["total"] == summary["executed"] == summary["passed"] == 1
+    assert summary["failed"] == summary["interrupted"] == 0
+    assert summary["quality_gate"] == {"status": "ready", "reasons": []}
+    assert len(summary["tests"]) == 1
+    assert summary["tests"][0]["nodeid"] == "test_rerun.py::test_new_success"
+    assert summary["tests"][0]["error"] is None
+    markdown = (output / "qa-summary.md").read_text(encoding="utf-8")
+    assert "Quality gate: **ready**" in markdown
+    assert "test_new_success" in markdown
+    assert "test_old_failure" not in markdown
+    assert "previous run failed" not in markdown
