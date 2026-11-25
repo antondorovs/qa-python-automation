@@ -335,3 +335,23 @@ def test_successful_rerun_removes_previous_failure_from_saved_reports(tmp_path: 
     assert "test_new_success" in markdown
     assert "test_old_failure" not in markdown
     assert "previous run failed" not in markdown
+
+
+def test_non_ascii_failure_is_readable_in_saved_reports(tmp_path: Path) -> None:
+    message = "Ошибка: заказ не найден"
+    (tmp_path / "test_localized.py").write_text(
+        f"def test_order():\n    raise AssertionError({message!r})\n", encoding="utf-8"
+    )
+
+    completed = _run_reporter(tmp_path)
+
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    output = tmp_path / "qa-report"
+    raw_json = (output / "qa-summary.json").read_text(encoding="utf-8")
+    summary = json.loads(raw_json)
+    assert summary["failed"] == 1
+    assert summary["quality_gate"]["status"] == "blocked"
+    assert message in summary["tests"][0]["error"]
+    assert message in raw_json
+    markdown = (output / "qa-summary.md").read_text(encoding="utf-8")
+    assert f"Failure: AssertionError: {message}" in markdown
