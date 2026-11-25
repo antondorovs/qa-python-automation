@@ -276,3 +276,31 @@ def test_remaining():
     assert "1 interrupted test(s)" in markdown
     assert "**failed** `test_fail_fast.py::test_first_failure`" in markdown
     assert "**interrupted** `test_fail_fast.py::test_remaining`" in markdown
+
+
+@pytest.mark.parametrize("deselect", [False, True], ids=["empty-directory", "deselected"])
+def test_no_selected_tests_replaces_stale_success_report(tmp_path: Path, deselect: bool) -> None:
+    output = tmp_path / "qa-report"
+    output.mkdir()
+    for name in ("qa-summary.json", "qa-summary.md"):
+        (output / name).write_text("stale successful run", encoding="utf-8")
+    if deselect:
+        (tmp_path / "test_available.py").write_text(
+            "def test_ok():\n    pass\n", encoding="utf-8"
+        )
+
+    completed = _run_reporter(tmp_path, "-k", "no_matching_test")
+
+    assert completed.returncode == 5, completed.stdout + completed.stderr
+    summary = json.loads((output / "qa-summary.json").read_text(encoding="utf-8"))
+    assert summary["total"] == summary["executed"] == 0
+    assert summary["tests"] == []
+    assert summary["quality_gate"] == {
+        "status": "blocked",
+        "reasons": ["No tests executed", "pytest exited with code 5"],
+    }
+    markdown = (output / "qa-summary.md").read_text(encoding="utf-8")
+    assert "Quality gate: **blocked**" in markdown
+    assert "No tests executed" in markdown
+    assert "pytest exited with code 5" in markdown
+    assert "stale successful run" not in markdown
