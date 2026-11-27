@@ -16,12 +16,14 @@ def head_server_url() -> Iterator[str]:
             self.send_response(int(self.path.removeprefix("/")))
             self.send_header("Content-Type", "application/json")
             # HEAD advertises the GET representation length but sends no body.
-            self.send_header("Content-Length", str(len(b'{"message": "example"}')))
+            length = 0 if self.path == "/205" else len(b'{"message": "example"}')
+            self.send_header("Content-Length", str(length))
             self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
             self.do_HEAD()
-            self.wfile.write(b'{"message": "example"}')
+            if self.path != "/205":
+                self.wfile.write(b'{"message": "example"}')
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = Thread(target=server.serve_forever, daemon=True)
@@ -92,3 +94,15 @@ def test_client_handles_empty_success_and_error_responses_in_sequence(base_url: 
     assert fetched.status == 200
     assert fetched.body == created.body
     assert client.request("GET", "/api/users").body == original_users + [created.body]
+
+
+def test_client_handles_reset_content_without_decoding_a_body(head_server_url: str) -> None:
+    client = ApiClient(head_server_url)
+
+    response = client.request("GET", "/205")
+
+    assert response.status == 205
+    assert response.body is None
+    following = client.request("GET", "/200")
+    assert following.status == 200
+    assert following.body == {"message": "example"}
